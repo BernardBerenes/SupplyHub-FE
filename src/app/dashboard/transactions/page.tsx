@@ -27,6 +27,7 @@ import { Pagination } from "@/components/Pagination";
 import { ArrowPathIcon, PencilIcon, TrashIcon } from "@/components/icons";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ConfirmDialog";
 import { Select } from "@/components/Select";
+import { DatePicker } from "@/components/DatePicker";
 
 const LIMIT = 10;
 const DETAIL_LIMIT = 10;
@@ -320,7 +321,7 @@ export default function TransactionsPage() {
           disabled={syncing}
           aria-label="Sync transactions"
           title="Sync"
-          className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-border bg-background text-foreground transition-colors active:scale-[0.98] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-border bg-card text-foreground shadow-sm transition-colors active:scale-[0.98] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
         >
           <ArrowPathIcon className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
         </button>
@@ -345,17 +346,18 @@ export default function TransactionsPage() {
             { value: "DELIVERED", label: "Delivered" },
           ]}
         />
-        <input
-          type="date"
-          value={filters.date_from ?? ""}
-          onChange={(e) => updateFilter("date_from", e.target.value)}
-          className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+        <DatePicker
+          value={filters.date_from}
+          onChange={(v) => updateFilter("date_from", v)}
+          placeholder="From date"
+          max={filters.date_to}
         />
-        <input
-          type="date"
-          value={filters.date_to ?? ""}
-          onChange={(e) => updateFilter("date_to", e.target.value)}
-          className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+        <span className="text-xs text-muted-foreground">to</span>
+        <DatePicker
+          value={filters.date_to}
+          onChange={(v) => updateFilter("date_to", v)}
+          placeholder="To date"
+          min={filters.date_from}
         />
       </div>
 

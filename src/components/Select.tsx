@@ -61,7 +61,7 @@ export function Select({
     >
       <RadixSelect.Trigger
         id={id}
-        className={`inline-flex cursor-pointer items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors hover:border-primary/40 focus:border-primary focus:ring-2 focus:ring-ring ${className ?? ""}`}
+        className={`inline-flex cursor-pointer items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none transition-colors hover:border-primary/40 focus:border-primary focus:ring-2 focus:ring-ring ${className ?? ""}`}
       >
         <RadixSelect.Value placeholder={placeholder} className="truncate data-[placeholder]:text-muted-foreground" />
         <RadixSelect.Icon>
