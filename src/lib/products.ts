@@ -7,6 +7,12 @@ export type Product = {
   photo: string | null;
 };
 
+const ASSET_BASE = process.env.NEXT_PUBLIC_ASSET_URL?.replace(/\/$/, "");
+
+export function getPhotoUrl(photo: string | null): string | undefined {
+  return photo && ASSET_BASE ? `${ASSET_BASE}/${photo}` : undefined;
+}
+
 export type Paginated<T, K extends string> = {
   page: number;
   size: number;

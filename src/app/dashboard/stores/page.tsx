@@ -7,12 +7,13 @@ import { Pagination } from "@/components/Pagination";
 import { PencilIcon, TrashIcon } from "@/components/icons";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ConfirmDialog";
 
-const LIMIT = 10;
-
 export default function StoresPage() {
   const [stores, setStores] = useState<Store[]>([]);
   const [page, setPage] = useState(1);
   const [totalPage, setTotalPage] = useState(1);
+  const [totalItem, setTotalItem] = useState(0);
+  const [limit, setLimit] = useState(10);
+  const [size, setSize] = useState(10);
   const [nameInput, setNameInput] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -22,6 +23,7 @@ export default function StoresPage() {
   const [editing, setEditing] = useState<Store | null>(null);
   const [formKey, setFormKey] = useState(0);
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const confirmRef = useRef<ConfirmDialogHandle>(null);
 
@@ -29,10 +31,12 @@ export default function StoresPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await paginateStores(page, LIMIT, search);
+      const data = await paginateStores(page, limit, search);
       if (data) {
         setStores(data.stores);
         setTotalPage(data.total_page);
+        setTotalItem(data.total_item);
+        setSize(data.size);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to load stores.");
@@ -45,7 +49,12 @@ export default function StoresPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, search]);
+  }, [page, limit, search]);
+
+  function handleSizeChange(newSize: number) {
+    setLimit(newSize);
+    setPage(1);
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -59,6 +68,7 @@ export default function StoresPage() {
     setEditing(null);
     setFormKey((k) => k + 1);
     setFormError(null);
+    setFieldErrors({});
     dialogRef.current?.showModal();
   }
 
@@ -66,12 +76,14 @@ export default function StoresPage() {
     setEditing(store);
     setFormKey((k) => k + 1);
     setFormError(null);
+    setFieldErrors({});
     dialogRef.current?.showModal();
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setFormError(null);
+    setFieldErrors({});
     setSaving(true);
     const name = new FormData(e.currentTarget).get("name") as string;
     try {
@@ -83,7 +95,11 @@ export default function StoresPage() {
       dialogRef.current?.close();
       load();
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "Failed to save store.");
+      if (err instanceof ApiError && err.errors?.length) {
+        setFieldErrors(Object.fromEntries(err.errors.map((e) => [e.field, e.message])));
+      } else {
+        setFormError(err instanceof ApiError ? err.message : "Failed to save store.");
+      }
     } finally {
       setSaving(false);
     }
@@ -188,7 +204,15 @@ export default function StoresPage() {
           </tbody>
         </table>
         <div className="px-4">
-          <Pagination page={page} totalPage={totalPage} onChange={setPage} />
+          <Pagination
+            page={page}
+            totalPage={totalPage}
+            size={limit}
+            displaySize={size}
+            totalItem={totalItem}
+            onChange={setPage}
+            onSizeChange={handleSizeChange}
+          />
         </div>
       </div>
 
@@ -208,10 +232,10 @@ export default function StoresPage() {
               id="name"
               name="name"
               type="text"
-              required
               defaultValue={editing?.name}
               className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
+            {fieldErrors.name && <p className="mt-1 text-xs text-destructive">{fieldErrors.name}</p>}
           </div>
 
           {formError && <p className="mt-3 text-sm text-destructive">{formError}</p>}

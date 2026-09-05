@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import * as RadixSelect from "@radix-ui/react-select";
 import { CheckIcon, ChevronDownIcon } from "./icons";
+import { announcePopoverOpen, POPOVER_OPEN_EVENT } from "@/lib/popover";
 
-export type SelectOption = { value: string; label: string; disabled?: boolean };
+export type SelectOption = { value: string; label: string; disabled?: boolean; icon?: ReactNode };
 
 const SEARCH_THRESHOLD = 6;
 
@@ -32,6 +33,15 @@ export function Select({
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  const instanceId = useId();
+
+  useEffect(() => {
+    function handleOtherOpen(e: Event) {
+      if ((e as CustomEvent<string>).detail !== instanceId) setOpen(false);
+    }
+    window.addEventListener(POPOVER_OPEN_EVENT, handleOtherOpen);
+    return () => window.removeEventListener(POPOVER_OPEN_EVENT, handleOtherOpen);
+  }, [instanceId]);
 
   const searchable = options.length > SEARCH_THRESHOLD;
   const filtered = searchable
@@ -57,7 +67,10 @@ export function Select({
       onValueChange={onValueChange}
       required={required}
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(o) => {
+        if (o) announcePopoverOpen(instanceId);
+        setOpen(o);
+      }}
     >
       <RadixSelect.Trigger
         id={id}
@@ -107,6 +120,7 @@ export function Select({
               <RadixSelect.ItemIndicator className="absolute left-2 inline-flex items-center">
                 <CheckIcon className="h-4 w-4" />
               </RadixSelect.ItemIndicator>
+              {opt.icon && <span className="mr-2 inline-flex shrink-0">{opt.icon}</span>}
               <RadixSelect.ItemText>{opt.label}</RadixSelect.ItemText>
             </RadixSelect.Item>
           ))}

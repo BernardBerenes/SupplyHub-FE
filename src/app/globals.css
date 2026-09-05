@@ -49,6 +49,9 @@ body {
 }
 
 dialog[open] {
+  /* Native <dialog> clips overflowing content by default, which cuts off
+     floating popovers (e.g. DatePicker) that open near the modal's edge. */
+  overflow: visible;
   animation: dialog-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 

@@ -77,6 +77,35 @@ export function EyeSlashIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function PhotoIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true" {...props}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M2.25 15.75l5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3 20.25h18A1.5 1.5 0 0 0 22.5 18.75V5.25A1.5 1.5 0 0 0 21 3.75H3A1.5 1.5 0 0 0 1.5 5.25v13.5A1.5 1.5 0 0 0 3 20.25Z"
+      />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function ExpandAllIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 5.25h15M8.25 10.5 12 6.75l3.75 3.75M8.25 13.5l3.75 3.75 3.75-3.75M4.5 18.75h15" />
+    </svg>
+  );
+}
+
+export function CollapseAllIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 5.25h15M8.25 8.25 12 12l3.75-3.75M8.25 15.75 12 12l3.75 3.75M4.5 18.75h15" />
+    </svg>
+  );
+}
+
 export function TrashIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true" {...props}>

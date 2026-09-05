@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { CalendarIcon, ChevronDownIcon } from "./icons";
+import { announcePopoverOpen, POPOVER_OPEN_EVENT } from "@/lib/popover";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTH_NAMES = [
@@ -35,6 +36,7 @@ function buildMonthGrid(year: number, month: number) {
 }
 
 export function DatePicker({
+  id,
   value,
   onChange,
   placeholder = "Select date",
@@ -42,6 +44,7 @@ export function DatePicker({
   min,
   max,
 }: {
+  id?: string;
   value?: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -56,11 +59,15 @@ export function DatePicker({
   const [open, setOpen] = useState(false);
   const [viewDate, setViewDate] = useState(selected ?? today);
   const rootRef = useRef<HTMLDivElement>(null);
+  const instanceId = useId();
 
-  useEffect(() => {
-    if (open) setViewDate(selected ?? today);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  function toggleOpen() {
+    if (!open) {
+      setViewDate(selected ?? today);
+      announcePopoverOpen(instanceId);
+    }
+    setOpen(!open);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -71,13 +78,22 @@ export function DatePicker({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
+  useEffect(() => {
+    function handleOtherOpen(e: Event) {
+      if ((e as CustomEvent<string>).detail !== instanceId) setOpen(false);
+    }
+    window.addEventListener(POPOVER_OPEN_EVENT, handleOtherOpen);
+    return () => window.removeEventListener(POPOVER_OPEN_EVENT, handleOtherOpen);
+  }, [instanceId]);
+
   const grid = buildMonthGrid(viewDate.getFullYear(), viewDate.getMonth());
 
   return (
     <div ref={rootRef} className="relative">
       <button
+        id={id}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggleOpen}
         className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm shadow-sm outline-none transition-colors hover:border-primary/40 focus:border-primary focus:ring-2 focus:ring-ring ${
           selected ? "text-foreground" : "text-muted-foreground"
         } ${className ?? ""}`}

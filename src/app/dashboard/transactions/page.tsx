@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { ApiError } from "@/lib/api";
 import { listStores, type Store } from "@/lib/stores";
-import { listProducts, type Product } from "@/lib/products";
+import { getPhotoUrl, listProducts, type Product } from "@/lib/products";
 import {
   createTransaction,
   deleteTransaction,
@@ -24,13 +24,41 @@ import {
   type Unit,
 } from "@/lib/transaction-details";
 import { Pagination } from "@/components/Pagination";
-import { ArrowPathIcon, PencilIcon, TrashIcon } from "@/components/icons";
+import {
+  ArrowPathIcon,
+  ChevronDownIcon,
+  CollapseAllIcon,
+  ExpandAllIcon,
+  PencilIcon,
+  PhotoIcon,
+  TrashIcon,
+} from "@/components/icons";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ConfirmDialog";
 import { Select } from "@/components/Select";
 import { DatePicker } from "@/components/DatePicker";
+import { HoverImage } from "@/components/HoverImage";
 
-const LIMIT = 10;
-const DETAIL_LIMIT = 10;
+type DetailsState = {
+  items: TransactionDetail[];
+  page: number;
+  totalPage: number;
+  totalItem: number;
+  limit: number;
+  size: number;
+  loading: boolean;
+  error: string | null;
+};
+
+const EMPTY_DETAILS: DetailsState = {
+  items: [],
+  page: 1,
+  totalPage: 1,
+  totalItem: 0,
+  limit: 10,
+  size: 10,
+  loading: false,
+  error: null,
+};
 
 const UNIT_OPTIONS = [
   { value: "PIECES", label: "Pieces" },
@@ -46,6 +74,17 @@ const STATUS_BADGE: Record<PaymentStatus | DeliveryStatus, string> = {
   ON_DELIVERY: "bg-blue-100 text-blue-700",
   DELIVERED: "bg-emerald-100 text-emerald-700",
 };
+
+function ProductThumb({ product, className }: { product: Product; className: string }) {
+  const url = getPhotoUrl(product.photo);
+  return url ? (
+    <HoverImage src={url} alt={product.name} className={`${className} object-cover`} />
+  ) : (
+    <div className={`${className} flex items-center justify-center bg-muted text-muted-foreground`}>
+      <PhotoIcon className="h-1/2 w-1/2" />
+    </div>
+  );
+}
 
 function Badge({ value }: { value: PaymentStatus | DeliveryStatus }) {
   return (
@@ -66,6 +105,9 @@ export default function TransactionsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [page, setPage] = useState(1);
   const [totalPage, setTotalPage] = useState(1);
+  const [totalItem, setTotalItem] = useState(0);
+  const [limit, setLimit] = useState(10);
+  const [size, setSize] = useState(10);
   const [filters, setFilters] = useState<TransactionFilters>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,18 +115,15 @@ export default function TransactionsPage() {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [formKey, setFormKey] = useState(0);
+  const [transactionDate, setTransactionDate] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const confirmRef = useRef<ConfirmDialogHandle>(null);
 
-  const detailsDialogRef = useRef<HTMLDialogElement>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [detailsFor, setDetailsFor] = useState<Transaction | null>(null);
-  const [details, setDetails] = useState<TransactionDetail[]>([]);
-  const [detailsPage, setDetailsPage] = useState(1);
-  const [detailsTotalPage, setDetailsTotalPage] = useState(1);
-  const [detailsLoading, setDetailsLoading] = useState(false);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [detailsByTx, setDetailsByTx] = useState<Record<string, DetailsState>>({});
 
   const detailFormDialogRef = useRef<HTMLDialogElement>(null);
   const [editingDetail, setEditingDetail] = useState<TransactionDetail | null>(null);
@@ -95,8 +134,6 @@ export default function TransactionsPage() {
   const [detailPriceDisplay, setDetailPriceDisplay] = useState("");
   const [detailFormError, setDetailFormError] = useState<string | null>(null);
   const [detailSaving, setDetailSaving] = useState(false);
-
-  const detailPriceIsCalculated = detailUnit === "PIECES" || detailUnit === "DOZENS";
 
   function recalcDetailPrice(productId: string, quantity: number, unit: Unit) {
     if (unit === "BOX" || unit === "CARTON") return;
@@ -113,10 +150,12 @@ export default function TransactionsPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await paginateTransactions(page, LIMIT, filters);
+      const data = await paginateTransactions(page, limit, filters);
       if (data) {
         setTransactions(data.transactions);
         setTotalPage(data.total_page);
+        setTotalItem(data.total_item);
+        setSize(data.size);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to load transactions.");
@@ -129,7 +168,12 @@ export default function TransactionsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, filters]);
+  }, [page, limit, filters]);
+
+  function handleSizeChange(newSize: number) {
+    setLimit(newSize);
+    setPage(1);
+  }
 
   useEffect(() => {
     listStores()
@@ -159,6 +203,7 @@ export default function TransactionsPage() {
 
   function openCreate() {
     setEditing(null);
+    setTransactionDate("");
     setFormKey((k) => k + 1);
     setFormError(null);
     dialogRef.current?.showModal();
@@ -166,6 +211,7 @@ export default function TransactionsPage() {
 
   function openEdit(transaction: Transaction) {
     setEditing(transaction);
+    setTransactionDate(transaction.date);
     setFormKey((k) => k + 1);
     setFormError(null);
     dialogRef.current?.showModal();
@@ -173,6 +219,10 @@ export default function TransactionsPage() {
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!transactionDate) {
+      setFormError("Date is required.");
+      return;
+    }
     setFormError(null);
     setSaving(true);
     const form = new FormData(e.currentTarget);
@@ -209,35 +259,71 @@ export default function TransactionsPage() {
     }
   }
 
-  async function loadDetails(transactionId: string, targetPage: number) {
-    setDetailsLoading(true);
-    setDetailsError(null);
+  async function loadDetails(transactionId: string, targetPage: number, targetLimit?: number) {
+    const limit = targetLimit ?? detailsByTx[transactionId]?.limit ?? EMPTY_DETAILS.limit;
+    setDetailsByTx((prev) => ({
+      ...prev,
+      [transactionId]: { ...(prev[transactionId] ?? EMPTY_DETAILS), limit, loading: true, error: null },
+    }));
     try {
-      const data = await paginateTransactionDetails(transactionId, targetPage, DETAIL_LIMIT);
+      const data = await paginateTransactionDetails(transactionId, targetPage, limit);
       if (data) {
-        setDetails(data.transaction_details);
-        setDetailsTotalPage(data.total_page);
+        setDetailsByTx((prev) => ({
+          ...prev,
+          [transactionId]: {
+            items: data.transaction_details,
+            page: targetPage,
+            totalPage: data.total_page,
+            totalItem: data.total_item,
+            limit,
+            size: data.size,
+            loading: false,
+            error: null,
+          },
+        }));
       }
     } catch (err) {
-      setDetailsError(err instanceof ApiError ? err.message : "Failed to load transaction details.");
-    } finally {
-      setDetailsLoading(false);
+      setDetailsByTx((prev) => ({
+        ...prev,
+        [transactionId]: {
+          ...(prev[transactionId] ?? EMPTY_DETAILS),
+          loading: false,
+          error: err instanceof ApiError ? err.message : "Failed to load transaction details.",
+        },
+      }));
     }
   }
 
-  function openDetails(transaction: Transaction) {
+  function toggleDetails(transaction: Transaction) {
+    const isOpen = expandedIds.has(transaction.id);
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (isOpen) next.delete(transaction.id);
+      else next.add(transaction.id);
+      return next;
+    });
+    if (!isOpen) loadDetails(transaction.id, 1);
+  }
+
+  function expandAll() {
+    setExpandedIds(new Set(transactions.map((t) => t.id)));
+    transactions.forEach((t) => loadDetails(t.id, 1));
+  }
+
+  function collapseAll() {
+    setExpandedIds(new Set());
+  }
+
+  function changeDetailsPage(transactionId: string, targetPage: number) {
+    loadDetails(transactionId, targetPage);
+  }
+
+  function changeDetailsSize(transactionId: string, newSize: number) {
+    loadDetails(transactionId, 1, newSize);
+  }
+
+  function openAddDetail(transaction: Transaction) {
     setDetailsFor(transaction);
-    setDetailsPage(1);
-    loadDetails(transaction.id, 1);
-    detailsDialogRef.current?.showModal();
-  }
-
-  function changeDetailsPage(targetPage: number) {
-    setDetailsPage(targetPage);
-    if (detailsFor) loadDetails(detailsFor.id, targetPage);
-  }
-
-  function openAddDetail() {
     setEditingDetail(null);
     setDetailProductId("");
     setDetailQuantity(1);
@@ -248,7 +334,8 @@ export default function TransactionsPage() {
     detailFormDialogRef.current?.showModal();
   }
 
-  function openEditDetail(detail: TransactionDetail) {
+  function openEditDetail(detail: TransactionDetail, transaction: Transaction) {
+    setDetailsFor(transaction);
     setEditingDetail(detail);
     setDetailProductId(detail.product.id);
     setDetailQuantity(detail.quantity);
@@ -278,7 +365,7 @@ export default function TransactionsPage() {
         await createTransactionDetail(detailsFor.id, data);
       }
       detailFormDialogRef.current?.close();
-      loadDetails(detailsFor.id, detailsPage);
+      loadDetails(detailsFor.id, detailsByTx[detailsFor.id]?.page ?? 1);
     } catch (err) {
       setDetailFormError(err instanceof ApiError ? err.message : "Failed to save transaction detail.");
     } finally {
@@ -286,13 +373,12 @@ export default function TransactionsPage() {
     }
   }
 
-  async function handleDeleteDetail(detail: TransactionDetail) {
-    if (!detailsFor) return;
+  async function handleDeleteDetail(detail: TransactionDetail, transaction: Transaction) {
     const ok = await confirmRef.current?.confirm(`Remove "${detail.product.name}" from this transaction?`);
     if (!ok) return;
     try {
-      await deleteTransactionDetail(detailsFor.id, detail.id);
-      loadDetails(detailsFor.id, detailsPage);
+      await deleteTransactionDetail(transaction.id, detail.id);
+      loadDetails(transaction.id, detailsByTx[transaction.id]?.page ?? 1);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Failed to delete transaction detail.");
     }
@@ -359,9 +445,29 @@ export default function TransactionsPage() {
           placeholder="To date"
           min={filters.date_from}
         />
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={expandAll}
+            aria-label="Expand all"
+            title="Expand all"
+            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-border bg-card text-foreground shadow-sm transition-colors hover:bg-muted"
+          >
+            <ExpandAllIcon className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={collapseAll}
+            aria-label="Collapse all"
+            title="Collapse all"
+            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-border bg-card text-foreground shadow-sm transition-colors hover:bg-muted"
+          >
+            <CollapseAllIcon className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
-      <p className="mt-4 text-xs text-muted-foreground">Click a row to view its items.</p>
+      <p className="mt-4 text-xs text-muted-foreground">Click a row to expand its items.</p>
 
       <div className="mt-2 overflow-hidden rounded-xl border border-border bg-card">
         <table className="w-full text-left text-sm">
@@ -398,14 +504,26 @@ export default function TransactionsPage() {
             )}
             {!loading &&
               !error &&
-              transactions.map((tx, i) => (
+              transactions.map((tx, i) => {
+                const isExpanded = expandedIds.has(tx.id);
+                const detailState = detailsByTx[tx.id] ?? EMPTY_DETAILS;
+                return (
+                <Fragment key={tx.id}>
                 <tr
-                  key={tx.id}
-                  onClick={() => openDetails(tx)}
+                  onClick={() => toggleDetails(tx)}
                   style={{ animationDelay: `${i * 40}ms` }}
                   className="animate-in cursor-pointer border-b border-border last:border-0 even:bg-muted/40 hover:bg-muted/60"
                 >
-                  <td className="px-4 py-3 text-card-foreground">{tx.store.name}</td>
+                  <td className="px-4 py-3 text-card-foreground">
+                    <div className="flex items-center gap-2">
+                      <ChevronDownIcon
+                        className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
+                          isExpanded ? "rotate-180" : ""
+                        }`}
+                      />
+                      {tx.store.name}
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-card-foreground">{tx.date}</td>
                   <td className="px-4 py-3">
                     <Badge value={tx.payment_status} />
@@ -440,11 +558,131 @@ export default function TransactionsPage() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                {isExpanded && (
+                  <tr className="animate-in border-b border-border bg-muted/30 last:border-0">
+                    <td colSpan={5} className="px-4 py-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <p className="text-sm font-medium text-foreground">Items</p>
+                        <button
+                          type="button"
+                          onClick={() => openAddDetail(tx)}
+                          className="cursor-pointer rounded-lg bg-primary px-3 py-2 text-sm font-medium text-on-primary transition-transform active:scale-[0.98] hover:bg-primary/90"
+                        >
+                          Add item
+                        </button>
+                      </div>
+
+                      <div className="mt-3 overflow-hidden rounded-xl border border-border bg-card">
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className="border-b border-border text-muted-foreground">
+                              <th className="px-4 py-3 font-medium">Product</th>
+                              <th className="px-4 py-3 font-medium">Qty</th>
+                              <th className="px-4 py-3 font-medium">Unit</th>
+                              <th className="px-4 py-3 font-medium">Price</th>
+                              <th className="px-4 py-3" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detailState.loading && (
+                              <tr>
+                                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                                  Loading...
+                                </td>
+                              </tr>
+                            )}
+                            {!detailState.loading && detailState.error && (
+                              <tr>
+                                <td colSpan={5} className="px-4 py-8 text-center text-destructive">
+                                  {detailState.error}
+                                </td>
+                              </tr>
+                            )}
+                            {!detailState.loading && !detailState.error && detailState.items.length === 0 && (
+                              <tr>
+                                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                                  No items yet.
+                                </td>
+                              </tr>
+                            )}
+                            {!detailState.loading &&
+                              !detailState.error &&
+                              detailState.items.map((detail, di) => (
+                                <tr
+                                  key={detail.id}
+                                  style={{ animationDelay: `${di * 40}ms` }}
+                                  className="animate-in border-b border-border last:border-0 even:bg-muted/40"
+                                >
+                                  <td className="px-4 py-3 text-card-foreground">
+                                    <div className="flex items-center gap-2">
+                                      {(() => {
+                                        const product = products.find((p) => p.id === detail.product.id);
+                                        return product ? (
+                                          <ProductThumb product={product} className="h-8 w-8 shrink-0 rounded-md" />
+                                        ) : null;
+                                      })()}
+                                      {detail.product.name}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-card-foreground">{detail.quantity}</td>
+                                  <td className="px-4 py-3 text-muted-foreground">{detail.unit}</td>
+                                  <td className="px-4 py-3 text-card-foreground">
+                                    Rp{detail.price.toLocaleString("id-ID")}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditDetail(detail, tx)}
+                                      aria-label={`Edit ${detail.product.name}`}
+                                      title="Edit"
+                                      className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-primary/30 bg-primary/5 text-primary transition-colors hover:bg-primary/10"
+                                    >
+                                      <PencilIcon className="h-4.5 w-4.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteDetail(detail, tx)}
+                                      aria-label={`Delete ${detail.product.name}`}
+                                      title="Delete"
+                                      className="ml-1 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-destructive/30 bg-destructive/5 text-destructive transition-colors hover:bg-destructive/10"
+                                    >
+                                      <TrashIcon className="h-4.5 w-4.5" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                        <div className="px-4">
+                          <Pagination
+                            page={detailState.page}
+                            totalPage={detailState.totalPage}
+                            size={detailState.limit}
+                            displaySize={detailState.size}
+                            totalItem={detailState.totalItem}
+                            onChange={(p) => changeDetailsPage(tx.id, p)}
+                            onSizeChange={(s) => changeDetailsSize(tx.id, s)}
+                          />
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                );
+              })}
           </tbody>
         </table>
         <div className="px-4">
-          <Pagination page={page} totalPage={totalPage} onChange={setPage} />
+          <Pagination
+            page={page}
+            totalPage={totalPage}
+            size={limit}
+            displaySize={size}
+            totalItem={totalItem}
+            onChange={setPage}
+            onSizeChange={handleSizeChange}
+          />
         </div>
       </div>
 
@@ -476,14 +714,14 @@ export default function TransactionsPage() {
               <label htmlFor="date" className="block text-sm font-medium">
                 Date
               </label>
-              <input
+              <DatePicker
                 id="date"
-                name="date"
-                type="date"
-                required
-                defaultValue={editing?.date}
-                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                value={transactionDate}
+                onChange={setTransactionDate}
+                placeholder="Select date"
+                className="mt-1 w-full"
               />
+              <input type="hidden" name="date" value={transactionDate} />
             </div>
 
             {editing && (
@@ -546,110 +784,6 @@ export default function TransactionsPage() {
       </dialog>
 
       <dialog
-        ref={detailsDialogRef}
-        onClose={() => setDetailsFor(null)}
-        className="fixed top-1/2 left-1/2 m-0 w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-6 text-card-foreground"
-      >
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold">{detailsFor?.store.name}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{detailsFor?.date}</p>
-          </div>
-          <button
-            type="button"
-            onClick={openAddDetail}
-            className="cursor-pointer rounded-lg bg-primary px-3 py-2 text-sm font-medium text-on-primary transition-transform active:scale-[0.98] hover:bg-primary/90"
-          >
-            Add item
-          </button>
-        </div>
-
-        <div className="mt-4 overflow-hidden rounded-xl border border-border">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-border text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Product</th>
-                <th className="px-4 py-3 font-medium">Qty</th>
-                <th className="px-4 py-3 font-medium">Unit</th>
-                <th className="px-4 py-3 font-medium">Price</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {detailsLoading && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
-                    Loading...
-                  </td>
-                </tr>
-              )}
-              {!detailsLoading && detailsError && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-destructive">
-                    {detailsError}
-                  </td>
-                </tr>
-              )}
-              {!detailsLoading && !detailsError && details.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
-                    No items yet.
-                  </td>
-                </tr>
-              )}
-              {!detailsLoading &&
-                !detailsError &&
-                details.map((detail, i) => (
-                  <tr
-                    key={detail.id}
-                    style={{ animationDelay: `${i * 40}ms` }}
-                    className="animate-in border-b border-border last:border-0 even:bg-muted/40"
-                  >
-                    <td className="px-4 py-3 text-card-foreground">{detail.product.name}</td>
-                    <td className="px-4 py-3 text-card-foreground">{detail.quantity}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{detail.unit}</td>
-                    <td className="px-4 py-3 text-card-foreground">Rp{detail.price.toLocaleString("id-ID")}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openEditDetail(detail)}
-                        aria-label={`Edit ${detail.product.name}`}
-                        title="Edit"
-                        className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-primary/30 bg-primary/5 text-primary transition-colors hover:bg-primary/10"
-                      >
-                        <PencilIcon className="h-4.5 w-4.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteDetail(detail)}
-                        aria-label={`Delete ${detail.product.name}`}
-                        title="Delete"
-                        className="ml-1 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-destructive/30 bg-destructive/5 text-destructive transition-colors hover:bg-destructive/10"
-                      >
-                        <TrashIcon className="h-4.5 w-4.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-          <div className="px-4">
-            <Pagination page={detailsPage} totalPage={detailsTotalPage} onChange={changeDetailsPage} />
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end">
-          <button
-            type="button"
-            onClick={() => detailsDialogRef.current?.close()}
-            className="cursor-pointer rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
-          >
-            Close
-          </button>
-        </div>
-      </dialog>
-
-      <dialog
         ref={detailFormDialogRef}
         onClose={() => setEditingDetail(null)}
         className="fixed top-1/2 left-1/2 m-0 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-6 text-card-foreground"
@@ -673,8 +807,26 @@ export default function TransactionsPage() {
                 }}
                 placeholder="Select a product"
                 className="mt-1 w-full"
-                options={products.map((product) => ({ value: product.id, label: product.name }))}
+                options={products.map((product) => ({
+                  value: product.id,
+                  label: product.name,
+                  icon: <ProductThumb product={product} className="h-6 w-6 rounded-md" />,
+                }))}
               />
+              {detailProductId && (() => {
+                const selectedProduct = products.find((p) => p.id === detailProductId);
+                return selectedProduct ? (
+                  <div className="mt-2 flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-2.5 py-2">
+                    <ProductThumb product={selectedProduct} className="h-9 w-9 shrink-0 rounded-lg" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{selectedProduct.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Rp{selectedProduct.price.toLocaleString("id-ID")}
+                      </p>
+                    </div>
+                  </div>
+                ) : null;
+              })()}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -725,7 +877,7 @@ export default function TransactionsPage() {
 
             <div>
               <label htmlFor="detail_price" className="block text-sm font-medium">
-                Price {detailPriceIsCalculated && <span className="text-muted-foreground">(auto-filled, editable)</span>}
+                Price
               </label>
               <input
                 id="detail_price"

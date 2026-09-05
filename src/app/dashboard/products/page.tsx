@@ -2,17 +2,19 @@
 
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { ApiError } from "@/lib/api";
-import { createProduct, deleteProduct, paginateProducts, updateProduct, type Product } from "@/lib/products";
+import { createProduct, deleteProduct, getPhotoUrl, paginateProducts, updateProduct, type Product } from "@/lib/products";
 import { Pagination } from "@/components/Pagination";
-import { PencilIcon, TrashIcon } from "@/components/icons";
+import { PencilIcon, PhotoIcon, TrashIcon } from "@/components/icons";
+import { HoverImage } from "@/components/HoverImage";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ConfirmDialog";
-
-const LIMIT = 10;
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [page, setPage] = useState(1);
   const [totalPage, setTotalPage] = useState(1);
+  const [totalItem, setTotalItem] = useState(0);
+  const [limit, setLimit] = useState(10);
+  const [size, setSize] = useState(10);
   const [nameInput, setNameInput] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -22,7 +24,9 @@ export default function ProductsPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [formKey, setFormKey] = useState(0);
   const [priceDisplay, setPriceDisplay] = useState("");
+  const [photoPreview, setPhotoPreview] = useState<string | undefined>(undefined);
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const confirmRef = useRef<ConfirmDialogHandle>(null);
 
@@ -30,10 +34,12 @@ export default function ProductsPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await paginateProducts(page, LIMIT, search);
+      const data = await paginateProducts(page, limit, search);
       if (data) {
         setProducts(data.products);
         setTotalPage(data.total_page);
+        setTotalItem(data.total_item);
+        setSize(data.size);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to load products.");
@@ -46,7 +52,12 @@ export default function ProductsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, search]);
+  }, [page, limit, search]);
+
+  function handleSizeChange(newSize: number) {
+    setLimit(newSize);
+    setPage(1);
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -59,17 +70,29 @@ export default function ProductsPage() {
   function openCreate() {
     setEditing(null);
     setPriceDisplay("");
+    setPhotoPreview(undefined);
     setFormKey((k) => k + 1);
     setFormError(null);
+    setFieldErrors({});
     dialogRef.current?.showModal();
   }
 
   function openEdit(product: Product) {
     setEditing(product);
     setPriceDisplay(product.price.toLocaleString("id-ID"));
+    setPhotoPreview(getPhotoUrl(product.photo));
     setFormKey((k) => k + 1);
     setFormError(null);
+    setFieldErrors({});
     dialogRef.current?.showModal();
+  }
+
+  function handlePhotoChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    setPhotoPreview((prev) => {
+      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return file ? URL.createObjectURL(file) : getPhotoUrl(editing?.photo ?? null);
+    });
   }
 
   function handlePriceChange(e: ChangeEvent<HTMLInputElement>) {
@@ -80,6 +103,7 @@ export default function ProductsPage() {
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setFormError(null);
+    setFieldErrors({});
     setSaving(true);
     const form = new FormData(e.currentTarget);
     try {
@@ -91,7 +115,11 @@ export default function ProductsPage() {
       dialogRef.current?.close();
       load();
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "Failed to save product.");
+      if (err instanceof ApiError && err.errors?.length) {
+        setFieldErrors(Object.fromEntries(err.errors.map((e) => [e.field, e.message])));
+      } else {
+        setFormError(err instanceof ApiError ? err.message : "Failed to save product.");
+      }
     } finally {
       setSaving(false);
     }
@@ -176,8 +204,21 @@ export default function ProductsPage() {
                   <td className="px-4 py-3 text-card-foreground">
                     Rp{product.price.toLocaleString("id-ID")}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {product.photo ? "Attached" : "—"}
+                  <td className="px-4 py-3">
+                    {(() => {
+                      const photoUrl = getPhotoUrl(product.photo);
+                      return photoUrl ? (
+                        <HoverImage
+                          src={photoUrl}
+                          alt={product.name}
+                          className="h-10 w-10 rounded-lg border border-border object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
+                          <PhotoIcon className="h-4 w-4" />
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
@@ -204,7 +245,15 @@ export default function ProductsPage() {
           </tbody>
         </table>
         <div className="px-4">
-          <Pagination page={page} totalPage={totalPage} onChange={setPage} />
+          <Pagination
+            page={page}
+            totalPage={totalPage}
+            size={limit}
+            displaySize={size}
+            totalItem={totalItem}
+            onChange={setPage}
+            onSizeChange={handleSizeChange}
+          />
         </div>
       </div>
 
@@ -225,41 +274,60 @@ export default function ProductsPage() {
                 id="name"
                 name="name"
                 type="text"
-                required
                 maxLength={100}
                 defaultValue={editing?.name}
                 className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
+              {fieldErrors.name && <p className="mt-1 text-xs text-destructive">{fieldErrors.name}</p>}
             </div>
 
             <div>
               <label htmlFor="price" className="block text-sm font-medium">
-                Price
+                Price per Piece
               </label>
               <input
                 id="price"
                 type="text"
                 inputMode="numeric"
-                required
                 value={priceDisplay}
                 onChange={handlePriceChange}
                 placeholder="0"
                 className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
               <input type="hidden" name="price" value={priceDisplay.replace(/\./g, "")} />
+              {fieldErrors.price && <p className="mt-1 text-xs text-destructive">{fieldErrors.price}</p>}
             </div>
 
             <div>
               <label htmlFor="photo" className="block text-sm font-medium">
                 Photo {editing && <span className="text-muted-foreground">(optional, replaces existing)</span>}
               </label>
-              <input
-                id="photo"
-                name="photo"
-                type="file"
-                accept="image/jpeg,image/png"
-                className="mt-1 w-full text-sm text-muted-foreground file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground"
-              />
+              <div className="mt-1 flex items-center gap-3">
+                {photoPreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={photoPreview}
+                    alt="Preview"
+                    className="h-14 w-14 shrink-0 rounded-lg border border-border object-cover"
+                  />
+                ) : (
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
+                    <PhotoIcon className="h-5 w-5" />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <input
+                    id="photo"
+                    name="photo"
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    onChange={handlePhotoChange}
+                    className="w-full text-sm text-muted-foreground file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">JPEG or PNG, up to 5 MB.</p>
+                  {fieldErrors.photo && <p className="mt-1 text-xs text-destructive">{fieldErrors.photo}</p>}
+                </div>
+              </div>
             </div>
           </div>
 

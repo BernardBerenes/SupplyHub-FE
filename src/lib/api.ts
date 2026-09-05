@@ -4,14 +4,18 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v
 
 type ApiResponse<T> = { message: string; data?: T };
 
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export class ApiError extends Error {
   status: number;
   errors?: { field: string; message: string }[];
 
   constructor(status: number, message: string, errors?: { field: string; message: string }[]) {
-    super(message);
+    super(capitalize(message));
     this.status = status;
-    this.errors = errors;
+    this.errors = errors?.map((e) => ({ ...e, message: capitalize(e.message) }));
   }
 }
 
