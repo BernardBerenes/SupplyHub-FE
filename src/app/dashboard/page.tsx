@@ -1,32 +1,418 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { ApiError } from "@/lib/api";
+import {
+  getRevenue,
+  paginateTransactions,
+  type RevenueGroupBy,
+  type RevenuePeriod,
+  type RevenuePoint,
+  type Transaction,
+} from "@/lib/transactions";
+import { BanknoteIcon, ClipboardListIcon, ClockIcon, TruckIcon } from "@/components/icons";
+import { Select } from "@/components/Select";
+import { DatePicker } from "@/components/DatePicker";
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+type PeriodChoice = RevenuePeriod | "custom";
+
+const PERIOD_OPTIONS: { value: PeriodChoice; label: string }[] = [
+  { value: "1d", label: "Today" },
+  { value: "1m", label: "Last month" },
+  { value: "3m", label: "Last 3 months" },
+  { value: "6m", label: "Last 6 months" },
+  { value: "1y", label: "Last year" },
+  { value: "all", label: "All time" },
+  { value: "custom", label: "Custom range" },
+];
+
+const GROUP_LABEL: Record<RevenueGroupBy, string> = { day: "day", week: "week", month: "month" };
+
+type DashboardData = {
+  totalRevenue: number;
+  points: RevenuePoint[];
+  groupBy: RevenueGroupBy;
+  transactionCount: number;
+  paidCount: number;
+  unpaidCount: number;
+  pendingDeliveries: number;
+  onDelivery: number;
+  delivered: number;
+};
+
+function groupByForPeriod(period: RevenuePeriod): RevenueGroupBy {
+  if (period === "1d" || period === "1m") return "day";
+  if (period === "3m" || period === "6m") return "week";
+  return "month";
+}
+
+function daysBetween(dateFrom: string, dateTo: string) {
+  const from = new Date(dateFrom);
+  const to = new Date(dateTo);
+  return Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function groupByForRange(dateFrom: string, dateTo: string): RevenueGroupBy {
+  const days = daysBetween(dateFrom, dateTo);
+  if (days <= 31) return "day";
+  if (days <= 186) return "week";
+  return "month";
+}
+
+function formatPeriodLabel(period: string) {
+  const match = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(period);
+  if (!match) return period;
+  const [, , m, d] = match;
+  const month = MONTHS[Number(m) - 1];
+  return d ? `${Number(d)} ${month}` : month;
+}
+
+function formatCurrency(n: number) {
+  return `Rp${Math.round(n).toLocaleString("id-ID")}`;
+}
+
+async function fetchAllTransactions(dateFrom: string, dateTo: string) {
+  const all: Transaction[] = [];
+  let page = 1;
+  for (;;) {
+    const data = await paginateTransactions(page, 100, { date_from: dateFrom, date_to: dateTo });
+    if (!data) break;
+    all.push(...data.transactions);
+    if (page >= data.total_page) break;
+    page++;
+  }
+  return all;
+}
+
+async function loadDashboardData(
+  period: PeriodChoice,
+  customRange: { from: string; to: string } | null
+): Promise<DashboardData> {
+  const groupBy =
+    period === "custom" && customRange ? groupByForRange(customRange.from, customRange.to) : groupByForPeriod(period as RevenuePeriod);
+  const revenue =
+    period === "custom" && customRange
+      ? await getRevenue({ date_from: customRange.from, date_to: customRange.to, group_by: groupBy })
+      : await getRevenue({ period: period as RevenuePeriod, group_by: groupBy });
+  if (!revenue) throw new Error("Failed to load revenue.");
+
+  const transactions = await fetchAllTransactions(revenue.date_from, revenue.date_to);
+
+  let paidCount = 0;
+  let unpaidCount = 0;
+  let pendingDeliveries = 0;
+  let onDelivery = 0;
+  let delivered = 0;
+
+  transactions.forEach((tx) => {
+    if (tx.payment_status === "PAID") paidCount++;
+    else unpaidCount++;
+
+    if (tx.delivery_status === "PENDING") pendingDeliveries++;
+    else if (tx.delivery_status === "ON_DELIVERY") onDelivery++;
+    else delivered++;
+  });
+
+  return {
+    totalRevenue: revenue.total_revenue,
+    points: revenue.points,
+    groupBy,
+    transactionCount: transactions.length,
+    paidCount,
+    unpaidCount,
+    pendingDeliveries,
+    onDelivery,
+    delivered,
+  };
+}
+
+function StatTile({
+  icon,
+  label,
+  value,
+  sublabel,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sublabel: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        {icon}
+        <span className="text-sm font-medium">{label}</span>
+      </div>
+      <p className="mt-3 text-2xl font-semibold text-card-foreground">{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{sublabel}</p>
+    </div>
+  );
+}
+
+function RevenueBarChart({ points }: { points: RevenuePoint[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const width = 700;
+  const height = 220;
+  const paddingLeft = 4;
+  const paddingRight = 4;
+  const paddingTop = 12;
+  const paddingBottom = 24;
+  const chartWidth = width - paddingLeft - paddingRight;
+  const chartHeight = height - paddingTop - paddingBottom;
+  const max = Math.max(1, ...points.map((p) => p.revenue));
+  const barGap = points.length > 20 ? 2 : 6;
+  const barWidth = Math.max(chartWidth / Math.max(points.length, 1) - barGap, 1);
+  const labelStep = Math.max(1, Math.ceil(points.length / 12));
+
+  return (
+    <div className="relative">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Revenue chart">
+        <line
+          x1={paddingLeft}
+          y1={paddingTop + chartHeight}
+          x2={width - paddingRight}
+          y2={paddingTop + chartHeight}
+          stroke="var(--color-border)"
+          strokeWidth={1}
+        />
+        {points.map((p, i) => {
+          const barHeight = Math.max((p.revenue / max) * chartHeight, 3);
+          const x = paddingLeft + i * (barWidth + barGap);
+          const y = paddingTop + chartHeight - barHeight;
+          return (
+            <g key={`${p.period}-${i}`}>
+              <rect
+                x={x}
+                y={y}
+                width={barWidth}
+                height={barHeight}
+                rx={Math.min(4, barWidth / 2)}
+                fill="var(--color-primary)"
+                opacity={hover === null || hover === i ? 1 : 0.4}
+                className="cursor-pointer transition-opacity"
+                onMouseEnter={() => setHover(i)}
+                onMouseLeave={() => setHover((h) => (h === i ? null : h))}
+              />
+              {i % labelStep === 0 && (
+                <text
+                  x={x + barWidth / 2}
+                  y={height - 6}
+                  textAnchor="middle"
+                  fontSize={9}
+                  fill="var(--color-muted-foreground)"
+                >
+                  {formatPeriodLabel(p.period)}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+      {hover !== null && points[hover] && (
+        <div
+          className="pointer-events-none absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs shadow-md"
+          style={{
+            left: `${((paddingLeft + hover * (barWidth + barGap) + barWidth / 2) / width) * 100}%`,
+            top: `${(paddingTop / height) * 100}%`,
+          }}
+        >
+          <p className="font-medium text-card-foreground">{formatPeriodLabel(points[hover].period)}</p>
+          <p className="text-muted-foreground">{formatCurrency(points[hover].revenue)}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusBreakdown({
+  title,
+  items,
+}: {
+  title: string;
+  items: { label: string; count: number; className: string }[];
+}) {
+  const total = Math.max(1, items.reduce((sum, item) => sum + item.count, 0));
+  return (
+    <div className="rounded-xl border border-border bg-card p-6">
+      <h2 className="text-sm font-medium text-card-foreground">{title}</h2>
+      <div className="mt-4 flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full bg-muted">
+        {items.map(
+          (item) =>
+            item.count > 0 && (
+              <div
+                key={item.label}
+                className={`h-full rounded-full ${item.className}`}
+                style={{ width: `${(item.count / total) * 100}%` }}
+                title={`${item.label}: ${item.count}`}
+              />
+            )
+        )}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-center gap-2 text-sm">
+            <span className={`h-2.5 w-2.5 rounded-full ${item.className}`} />
+            <span className="text-muted-foreground">{item.label}</span>
+            <span className="font-medium text-card-foreground">{item.count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
+  const [period, setPeriod] = useState<PeriodChoice>("1m");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const customRangeIncomplete = period === "custom" && (!customFrom || !customTo);
+
+  useEffect(() => {
+    if (customRangeIncomplete) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLoading(false);
+      setData(null);
+      setError(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    loadDashboardData(period, period === "custom" ? { from: customFrom, to: customTo } : null)
+      .then((result) => {
+        if (!cancelled) setData(result);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : "Failed to load dashboard.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [period, customFrom, customTo, customRangeIncomplete]);
+
   return (
     <div className="animate-in">
-      <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Overview of your products, stores, and transactions.
-      </p>
-
-      <div className="mt-10 flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card py-24 text-center">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          className="h-10 w-10 text-muted-foreground"
-          aria-hidden="true"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3.75m8.5-3.75 1 3.75m-9.5 0h10.5"
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Revenue and transactions overview.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select
+            value={period}
+            onValueChange={(v) => setPeriod(v as PeriodChoice)}
+            className="w-40"
+            options={PERIOD_OPTIONS}
           />
-        </svg>
-        <p className="mt-4 text-sm font-medium text-card-foreground">No data yet</p>
-        <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-          Once products, stores, and transactions come in, a summary will show up here.
-        </p>
+          {period === "custom" && (
+            <>
+              <DatePicker value={customFrom} onChange={setCustomFrom} placeholder="From date" max={customTo} />
+              <span className="text-xs text-muted-foreground">to</span>
+              <DatePicker value={customTo} onChange={setCustomTo} placeholder="To date" min={customFrom} align="right" />
+            </>
+          )}
+        </div>
       </div>
+
+      {!loading && !error && customRangeIncomplete && (
+        <div className="mt-10 flex items-center justify-center rounded-xl border border-dashed border-border bg-card py-24 text-sm text-muted-foreground">
+          Select a from and to date to view revenue.
+        </div>
+      )}
+
+      {loading && (
+        <div className="mt-10 flex items-center justify-center rounded-xl border border-dashed border-border bg-card py-24 text-sm text-muted-foreground">
+          Loading dashboard...
+        </div>
+      )}
+
+      {!loading && error && (
+        <div className="mt-10 flex items-center justify-center rounded-xl border border-dashed border-border bg-card py-24 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && data && data.transactionCount === 0 && (
+        <div className="mt-10 flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card py-24 text-center">
+          <ClipboardListIcon className="h-10 w-10 text-muted-foreground" />
+          <p className="mt-4 text-sm font-medium text-card-foreground">No data yet</p>
+          <p className="mt-1 max-w-xs text-sm text-muted-foreground">
+            No transactions in this period. Once orders come in, a summary will show up here.
+          </p>
+        </div>
+      )}
+
+      {!loading && !error && data && data.transactionCount > 0 && (
+        <>
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatTile
+              icon={<BanknoteIcon className="h-5 w-5" />}
+              label="Total revenue"
+              value={formatCurrency(data.totalRevenue)}
+              sublabel={
+                period === "custom"
+                  ? `${formatPeriodLabel(customFrom)} – ${formatPeriodLabel(customTo)}`
+                  : PERIOD_OPTIONS.find((o) => o.value === period)?.label ?? ""
+              }
+            />
+            <StatTile
+              icon={<ClipboardListIcon className="h-5 w-5" />}
+              label="Transactions"
+              value={String(data.transactionCount)}
+              sublabel={`${data.paidCount} paid`}
+            />
+            <StatTile
+              icon={<ClockIcon className="h-5 w-5" />}
+              label="Unpaid transactions"
+              value={String(data.unpaidCount)}
+              sublabel="Awaiting payment"
+            />
+            <StatTile
+              icon={<TruckIcon className="h-5 w-5" />}
+              label="Deliveries pending"
+              value={String(data.pendingDeliveries)}
+              sublabel={`${data.onDelivery} on the way`}
+            />
+          </div>
+
+          <div className="mt-6 rounded-xl border border-border bg-card p-6">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="text-sm font-medium text-card-foreground">Revenue by {GROUP_LABEL[data.groupBy]}</h2>
+              <p className="text-lg font-semibold text-card-foreground">{formatCurrency(data.totalRevenue)}</p>
+            </div>
+            <div className="mt-4">
+              <RevenueBarChart points={data.points} />
+            </div>
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <StatusBreakdown
+              title="Payment status"
+              items={[
+                { label: "Paid", count: data.paidCount, className: "bg-emerald-500" },
+                { label: "Unpaid", count: data.unpaidCount, className: "bg-amber-500" },
+              ]}
+            />
+            <StatusBreakdown
+              title="Delivery status"
+              items={[
+                { label: "Pending", count: data.pendingDeliveries, className: "bg-slate-400" },
+                { label: "On delivery", count: data.onDelivery, className: "bg-blue-500" },
+                { label: "Delivered", count: data.delivered, className: "bg-emerald-500" },
+              ]}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }

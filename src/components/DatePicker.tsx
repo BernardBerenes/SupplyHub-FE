@@ -43,6 +43,7 @@ export function DatePicker({
   className,
   min,
   max,
+  align = "left",
 }: {
   id?: string;
   value?: string;
@@ -51,6 +52,7 @@ export function DatePicker({
   className?: string;
   min?: string;
   max?: string;
+  align?: "left" | "right";
 }) {
   const selected = parseDateValue(value);
   const minDate = parseDateValue(min);
@@ -105,7 +107,11 @@ export function DatePicker({
       </button>
 
       {open && (
-        <div className="animate-in absolute top-full left-0 z-50 mt-2 w-64 rounded-xl border border-border bg-card p-3 text-card-foreground shadow-lg">
+        <div
+          className={`animate-in absolute top-full z-50 mt-2 w-64 rounded-xl border border-border bg-card p-3 text-card-foreground shadow-lg ${
+            align === "right" ? "right-0" : "left-0"
+          }`}
+        >
           <div className="flex items-center justify-between">
             <button
               type="button"

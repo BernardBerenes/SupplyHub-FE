@@ -10,6 +10,7 @@ export type Transaction = {
   payment_status: PaymentStatus;
   delivery_status: DeliveryStatus;
   date: string;
+  total_price: number;
 };
 
 export type TransactionFilters = {
@@ -46,4 +47,32 @@ export function deleteTransaction(id: string) {
 
 export function syncTransactions() {
   return apiFetch<void>("/transactions/sync", { method: "POST" });
+}
+
+export type RevenuePeriod = "1d" | "1m" | "3m" | "6m" | "1y" | "all";
+export type RevenueGroupBy = "day" | "week" | "month";
+
+export type RevenueFilters = {
+  period?: RevenuePeriod;
+  date_from?: string;
+  date_to?: string;
+  group_by?: RevenueGroupBy;
+};
+
+export type RevenuePoint = { period: string; revenue: number };
+
+export type RevenueResponse = {
+  period: string;
+  group_by: RevenueGroupBy | "total";
+  date_from: string;
+  date_to: string;
+  total_revenue: number;
+  points: RevenuePoint[];
+};
+
+export function getRevenue(filters: RevenueFilters = {}) {
+  return apiFetch<RevenueResponse>("/transactions/revenue", {
+    method: "POST",
+    body: JSON.stringify(filters),
+  });
 }

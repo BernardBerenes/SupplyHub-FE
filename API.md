@@ -343,6 +343,8 @@ POST /api/v1/stores
 }
 ```
 
+`name` is trimmed of leading/trailing whitespace and must be non-empty and at most 100 characters.
+
 **Success — 200**
 
 ```json
@@ -355,7 +357,7 @@ POST /api/v1/stores
 
 | Status | Body |
 | --- | --- |
-| 400 | `{"message":"Invalid request","errors":[{"field":"name","message":"name is required"}]}` |
+| 400 | `{"message":"Invalid request","errors":[{"field":"name","message":"name is required and must be at most 100 characters"}]}` |
 
 ### List Stores
 
@@ -433,6 +435,8 @@ PATCH /api/v1/stores/:uuid
 }
 ```
 
+`name` is trimmed of leading/trailing whitespace and must be non-empty and at most 100 characters.
+
 **Success — 200**
 
 ```json
@@ -445,7 +449,7 @@ PATCH /api/v1/stores/:uuid
 
 | Status | Body |
 | --- | --- |
-| 400 | `{"message":"Invalid request","errors":[{"field":"name","message":"name must not be empty"}]}` |
+| 400 | `{"message":"Invalid request","errors":[{"field":"name","message":"name must not be empty and must be at most 100 characters"}]}` |
 | 404 | `{"message":"Store not found"}` |
 
 ### Delete Store
@@ -539,6 +543,8 @@ POST /api/v1/transactions/paginate
 
 All fields optional. `limit` must be one of `10`, `25`, `50`, `100`. `payment_status` must be `PAID`/`UNPAID`; `delivery_status` must be `PENDING`/`ON_DELIVERY`/`DELIVERED`. Filtering by store name is not supported. Results are always sorted by `date` descending.
 
+`total_price` is the sum of `total_price` across that transaction's (non-deleted) transaction details, `0` if it has none. It is computed from `transaction_details` regardless of `payment_status` (unlike `/transactions/revenue`, which only sums `PAID` transactions).
+
 **Success — 200**
 
 ```json
@@ -555,7 +561,8 @@ All fields optional. `limit` must be one of `10`, `25`, `50`, `100`. `payment_st
         "store": { "id": 1, "name": "Toko Surya" },
         "payment_status": "UNPAID",
         "delivery_status": "PENDING",
-        "date": "2026-09-03"
+        "date": "2026-09-03",
+        "total_price": 150000
       }
     ]
   }
@@ -684,7 +691,9 @@ POST /api/v1/transactions/:transaction_id/details
 }
 ```
 
-`unit` must be one of `PIECES`, `DOZENS`, `BOX`, `CARTON`. `quantity` and `price` must be greater than `0`. There is no restriction based on the parent transaction's `delivery_status`.
+`unit` must be one of `PIECES`, `DOZENS`. `quantity` and `price` must be greater than `0`. There is no restriction based on the parent transaction's `delivery_status`.
+
+`price` is always the price of a single piece. The server derives `price_per_unit` as `price`, or `price * 12` when `unit` is `DOZENS` (since `quantity` then counts dozens, not pieces), and `total_price` as `price_per_unit * quantity`. `price` is also stored as-is under the `product` snapshot's `price` key (alongside `id`/`name`), as a record of what price was used for that line item.
 
 **Success — 200**
 
@@ -701,7 +710,7 @@ POST /api/v1/transactions/:transaction_id/details
 | 400 | `{"message":"Invalid request","errors":[{"field":"product_id","message":"product_id is required"}]}` |
 | 400 | `{"message":"Invalid request","errors":[{"field":"quantity","message":"quantity must be greater than 0"}]}` |
 | 400 | `{"message":"Invalid request","errors":[{"field":"price","message":"price must be greater than 0"}]}` |
-| 400 | `{"message":"Invalid request","errors":[{"field":"unit","message":"unit must be PIECES, DOZENS, BOX, or CARTON"}]}` |
+| 400 | `{"message":"Invalid request","errors":[{"field":"unit","message":"unit must be PIECES or DOZENS"}]}` |
 | 404 | `{"message":"Transaction not found"}` |
 | 404 | `{"message":"Product not found"}` |
 
@@ -736,10 +745,11 @@ All fields optional. `limit` must be one of `10`, `25`, `50`, `100`. Results are
       {
         "id": "770e8400-e29b-41d4-a716-446655440000",
         "transaction_id": "660e8400-e29b-41d4-a716-446655440000",
-        "product": { "id": "550e8400-e29b-41d4-a716-446655440000", "name": "Coffee" },
+        "product": { "id": "550e8400-e29b-41d4-a716-446655440000", "name": "Coffee", "price": 25000 },
         "quantity": 12,
         "unit": "DOZENS",
-        "price": 25000
+        "price_per_unit": 300000,
+        "total_price": 3600000
       }
     ]
   }
@@ -765,10 +775,12 @@ PATCH /api/v1/transactions/:transaction_id/details/:uuid
 {
   "product_id": "660e8400-e29b-41d4-a716-446655440000",
   "quantity": 24,
-  "unit": "BOX",
+  "unit": "PIECES",
   "price": 30000
 }
 ```
+
+`price_per_unit` and `total_price` are recalculated whenever `quantity`, `unit`, and/or `price` is provided, using whichever of those three is not provided from the existing record (the underlying per-piece `price` is reverse-derived from the stored `price_per_unit`). Providing `price` also updates the `product` snapshot's `price` key; providing `product_id` keeps the existing snapshot `price` and refreshes `id`/`name` only.
 
 **Success — 200**
 

@@ -63,8 +63,6 @@ const EMPTY_DETAILS: DetailsState = {
 const UNIT_OPTIONS = [
   { value: "PIECES", label: "Pieces" },
   { value: "DOZENS", label: "Dozens" },
-  { value: "BOX", label: "Box" },
-  { value: "CARTON", label: "Carton" },
 ];
 
 const STATUS_BADGE: Record<PaymentStatus | DeliveryStatus, string> = {
@@ -99,6 +97,10 @@ function formatPrice(raw: string) {
   return digits ? Number(digits).toLocaleString("id-ID") : "";
 }
 
+function sanitizeQuantity(raw: string) {
+  return raw.replace(/\D/g, "").replace(/^0+/, "");
+}
+
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
@@ -129,21 +131,25 @@ export default function TransactionsPage() {
   const [editingDetail, setEditingDetail] = useState<TransactionDetail | null>(null);
   const [detailFormKey, setDetailFormKey] = useState(0);
   const [detailProductId, setDetailProductId] = useState("");
-  const [detailQuantity, setDetailQuantity] = useState(1);
+  const [detailQuantityDisplay, setDetailQuantityDisplay] = useState("1");
   const [detailUnit, setDetailUnit] = useState<Unit>("PIECES");
-  const [detailPriceDisplay, setDetailPriceDisplay] = useState("");
+  const [detailPricePerPieceDisplay, setDetailPricePerPieceDisplay] = useState("");
   const [detailFormError, setDetailFormError] = useState<string | null>(null);
   const [detailSaving, setDetailSaving] = useState(false);
 
-  function recalcDetailPrice(productId: string, quantity: number, unit: Unit) {
-    if (unit === "BOX" || unit === "CARTON") return;
+  function fillPricePerPiece(productId: string) {
     const product = products.find((p) => p.id === productId);
-    if (!product || !quantity) {
-      setDetailPriceDisplay("");
-      return;
-    }
-    const multiplier = unit === "DOZENS" ? 12 : 1;
-    setDetailPriceDisplay((product.price * quantity * multiplier).toLocaleString("id-ID"));
+    setDetailPricePerPieceDisplay(product ? product.price.toLocaleString("id-ID") : "");
+  }
+
+  function detailPricePerUnit() {
+    const pricePerPiece = Number(detailPricePerPieceDisplay.replace(/\./g, "")) || 0;
+    return pricePerPiece * (detailUnit === "DOZENS" ? 12 : 1);
+  }
+
+  function detailTotalPrice() {
+    const quantity = Number(detailQuantityDisplay) || 0;
+    return detailPricePerUnit() * quantity;
   }
 
   async function load() {
@@ -326,9 +332,9 @@ export default function TransactionsPage() {
     setDetailsFor(transaction);
     setEditingDetail(null);
     setDetailProductId("");
-    setDetailQuantity(1);
+    setDetailQuantityDisplay("1");
     setDetailUnit("PIECES");
-    setDetailPriceDisplay("");
+    setDetailPricePerPieceDisplay("");
     setDetailFormKey((k) => k + 1);
     setDetailFormError(null);
     detailFormDialogRef.current?.showModal();
@@ -338,9 +344,9 @@ export default function TransactionsPage() {
     setDetailsFor(transaction);
     setEditingDetail(detail);
     setDetailProductId(detail.product.id);
-    setDetailQuantity(detail.quantity);
+    setDetailQuantityDisplay(String(detail.quantity));
     setDetailUnit(detail.unit);
-    setDetailPriceDisplay(detail.price.toLocaleString("id-ID"));
+    setDetailPricePerPieceDisplay(detail.product.price.toLocaleString("id-ID"));
     setDetailFormKey((k) => k + 1);
     setDetailFormError(null);
     detailFormDialogRef.current?.showModal();
@@ -477,27 +483,28 @@ export default function TransactionsPage() {
               <th className="px-4 py-3 font-medium">Date</th>
               <th className="px-4 py-3 font-medium">Payment</th>
               <th className="px-4 py-3 font-medium">Delivery</th>
+              <th className="px-4 py-3 font-medium">Total Price</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                   Loading...
                 </td>
               </tr>
             )}
             {!loading && error && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-destructive">
+                <td colSpan={6} className="px-4 py-8 text-center text-destructive">
                   {error}
                 </td>
               </tr>
             )}
             {!loading && !error && transactions.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                   No transactions yet.
                 </td>
               </tr>
@@ -531,6 +538,7 @@ export default function TransactionsPage() {
                   <td className="px-4 py-3">
                     <Badge value={tx.delivery_status} />
                   </td>
+                  <td className="px-4 py-3 text-card-foreground">Rp{tx.total_price.toLocaleString("id-ID")}</td>
                   <td className="px-4 py-3 text-right">
                     <button
                       type="button"
@@ -560,7 +568,7 @@ export default function TransactionsPage() {
                 </tr>
                 {isExpanded && (
                   <tr className="animate-in border-b border-border bg-muted/30 last:border-0">
-                    <td colSpan={5} className="px-4 py-4">
+                    <td colSpan={6} className="px-4 py-4">
                       <div className="flex items-center justify-between gap-4">
                         <p className="text-sm font-medium text-foreground">Items</p>
                         <button
@@ -577,30 +585,32 @@ export default function TransactionsPage() {
                           <thead>
                             <tr className="border-b border-border text-muted-foreground">
                               <th className="px-4 py-3 font-medium">Product</th>
+                              <th className="px-4 py-3 font-medium">Price/piece</th>
                               <th className="px-4 py-3 font-medium">Qty</th>
                               <th className="px-4 py-3 font-medium">Unit</th>
-                              <th className="px-4 py-3 font-medium">Price</th>
+                              <th className="px-4 py-3 font-medium">Price/unit</th>
+                              <th className="px-4 py-3 font-medium">Total</th>
                               <th className="px-4 py-3" />
                             </tr>
                           </thead>
                           <tbody>
                             {detailState.loading && (
                               <tr>
-                                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                                   Loading...
                                 </td>
                               </tr>
                             )}
                             {!detailState.loading && detailState.error && (
                               <tr>
-                                <td colSpan={5} className="px-4 py-8 text-center text-destructive">
+                                <td colSpan={7} className="px-4 py-8 text-center text-destructive">
                                   {detailState.error}
                                 </td>
                               </tr>
                             )}
                             {!detailState.loading && !detailState.error && detailState.items.length === 0 && (
                               <tr>
-                                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                                   No items yet.
                                 </td>
                               </tr>
@@ -624,10 +634,16 @@ export default function TransactionsPage() {
                                       {detail.product.name}
                                     </div>
                                   </td>
+                                  <td className="px-4 py-3 text-card-foreground">
+                                    Rp{detail.product.price.toLocaleString("id-ID")}
+                                  </td>
                                   <td className="px-4 py-3 text-card-foreground">{detail.quantity}</td>
                                   <td className="px-4 py-3 text-muted-foreground">{detail.unit}</td>
                                   <td className="px-4 py-3 text-card-foreground">
-                                    Rp{detail.price.toLocaleString("id-ID")}
+                                    Rp{detail.price_per_unit.toLocaleString("id-ID")}
+                                  </td>
+                                  <td className="px-4 py-3 text-card-foreground">
+                                    Rp{detail.total_price.toLocaleString("id-ID")}
                                   </td>
                                   <td className="px-4 py-3 text-right">
                                     <button
@@ -803,7 +819,7 @@ export default function TransactionsPage() {
                 value={detailProductId}
                 onValueChange={(v) => {
                   setDetailProductId(v);
-                  recalcDetailPrice(v, detailQuantity, detailUnit);
+                  fillPricePerPiece(v);
                 }}
                 placeholder="Select a product"
                 className="mt-1 w-full"
@@ -816,14 +832,9 @@ export default function TransactionsPage() {
               {detailProductId && (() => {
                 const selectedProduct = products.find((p) => p.id === detailProductId);
                 return selectedProduct ? (
-                  <div className="mt-2 flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-2.5 py-2">
-                    <ProductThumb product={selectedProduct} className="h-9 w-9 shrink-0 rounded-lg" />
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-foreground">{selectedProduct.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Rp{selectedProduct.price.toLocaleString("id-ID")}
-                      </p>
-                    </div>
+                  <div className="mt-2 flex items-center gap-2.5 rounded-lg border border-border bg-muted/40 px-2.5 py-2">
+                    <ProductThumb product={selectedProduct} className="h-10 w-10 shrink-0 rounded-lg" />
+                    <p className="truncate text-sm font-medium text-foreground">{selectedProduct.name}</p>
                   </div>
                 ) : null;
               })()}
@@ -837,16 +848,13 @@ export default function TransactionsPage() {
                 <input
                   id="quantity"
                   name="quantity"
-                  type="number"
-                  min={1}
+                  type="text"
+                  inputMode="numeric"
                   required
-                  value={detailQuantity}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                    const q = e.target.valueAsNumber;
-                    const quantity = Number.isNaN(q) ? 0 : q;
-                    setDetailQuantity(quantity);
-                    recalcDetailPrice(detailProductId, quantity, detailUnit);
-                  }}
+                  value={detailQuantityDisplay}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                    setDetailQuantityDisplay(sanitizeQuantity(e.target.value))
+                  }
                   className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
@@ -860,15 +868,7 @@ export default function TransactionsPage() {
                   name="unit"
                   required
                   value={detailUnit}
-                  onValueChange={(v) => {
-                    const unit = v as Unit;
-                    setDetailUnit(unit);
-                    if (unit === "BOX" || unit === "CARTON") {
-                      setDetailPriceDisplay("");
-                    } else {
-                      recalcDetailPrice(detailProductId, detailQuantity, unit);
-                    }
-                  }}
+                  onValueChange={(v) => setDetailUnit(v as Unit)}
                   className="mt-1 w-full"
                   options={UNIT_OPTIONS}
                 />
@@ -876,20 +876,37 @@ export default function TransactionsPage() {
             </div>
 
             <div>
+              <label htmlFor="price_per_piece" className="block text-sm font-medium">
+                Price per piece
+              </label>
+              <input
+                id="price_per_piece"
+                type="text"
+                inputMode="numeric"
+                required
+                value={detailPricePerPieceDisplay}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setDetailPricePerPieceDisplay(formatPrice(e.target.value))
+                }
+                placeholder="0"
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+              <input type="hidden" name="price" value={detailPricePerPieceDisplay.replace(/\./g, "")} />
+            </div>
+
+            <div>
               <label htmlFor="detail_price" className="block text-sm font-medium">
-                Price
+                Price per unit
               </label>
               <input
                 id="detail_price"
                 type="text"
-                inputMode="numeric"
-                required
-                value={detailPriceDisplay}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setDetailPriceDisplay(formatPrice(e.target.value))}
+                disabled
+                value={detailPricePerPieceDisplay ? detailPricePerUnit().toLocaleString("id-ID") : ""}
                 placeholder="0"
-                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                className="mt-1 w-full cursor-not-allowed rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground outline-none"
               />
-              <input type="hidden" name="price" value={detailPriceDisplay.replace(/\./g, "")} />
+              <p className="mt-1 text-xs text-muted-foreground">Total: Rp{detailTotalPrice().toLocaleString("id-ID")}</p>
             </div>
           </div>
 

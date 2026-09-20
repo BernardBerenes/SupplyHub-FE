@@ -1,15 +1,16 @@
 import { apiFetch } from "./api";
 import type { Paginated } from "./products";
 
-export type Unit = "PIECES" | "DOZENS" | "BOX" | "CARTON";
+export type Unit = "PIECES" | "DOZENS";
 
 export type TransactionDetail = {
   id: string;
   transaction_id: string;
-  product: { id: string; name: string };
+  product: { id: string; name: string; price: number };
   quantity: number;
   unit: Unit;
-  price: number;
+  price_per_unit: number;
+  total_price: number;
 };
 
 export function paginateTransactionDetails(transactionId: string, page: number, limit: number) {

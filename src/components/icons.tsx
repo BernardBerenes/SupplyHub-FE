@@ -106,6 +106,50 @@ export function CollapseAllIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function BanknoteIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true" {...props}>
+      <rect x="2.25" y="6" width="19.5" height="12" rx="2" />
+      <circle cx="12" cy="12" r="2.25" />
+      <path strokeLinecap="round" d="M5.25 9v0M18.75 15v0" />
+    </svg>
+  );
+}
+
+export function ClipboardListIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 4.5h6a1.5 1.5 0 0 1 1.5 1.5v.75h-9V6A1.5 1.5 0 0 1 9 4.5Z" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M6 6.75h12a1.5 1.5 0 0 1 1.5 1.5v11.25a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5V8.25a1.5 1.5 0 0 1 1.5-1.5Z"
+      />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 11.25h7.5M8.25 14.25h7.5M8.25 17.25h4.5" />
+    </svg>
+  );
+}
+
+export function ClockIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true" {...props}>
+      <circle cx="12" cy="12" r="8.25" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5V12l3 1.75" />
+    </svg>
+  );
+}
+
+export function TruckIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 7.5h9.75v9H2.25z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 10.5h3.75l3 3v3H12z" />
+      <circle cx="6.75" cy="18.75" r="1.5" />
+      <circle cx="16.5" cy="18.75" r="1.5" />
+    </svg>
+  );
+}
+
 export function TrashIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true" {...props}>
