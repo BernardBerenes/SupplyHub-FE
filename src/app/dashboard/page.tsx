@@ -2,14 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/api";
-import {
-  getRevenue,
-  paginateTransactions,
-  type RevenueGroupBy,
-  type RevenuePeriod,
-  type RevenuePoint,
-  type Transaction,
-} from "@/lib/transactions";
+import { getRevenue, type RevenueGroupBy, type RevenuePeriod, type RevenuePoint } from "@/lib/transactions";
 import { BanknoteIcon, ClipboardListIcon, ClockIcon, TruckIcon } from "@/components/icons";
 import { Select } from "@/components/Select";
 import { DatePicker } from "@/components/DatePicker";
@@ -73,19 +66,6 @@ function formatCurrency(n: number) {
   return `Rp${Math.round(n).toLocaleString("id-ID")}`;
 }
 
-async function fetchAllTransactions(dateFrom: string, dateTo: string) {
-  const all: Transaction[] = [];
-  let page = 1;
-  for (;;) {
-    const data = await paginateTransactions(page, 100, { date_from: dateFrom, date_to: dateTo });
-    if (!data) break;
-    all.push(...data.transactions);
-    if (page >= data.total_page) break;
-    page++;
-  }
-  return all;
-}
-
 async function loadDashboardData(
   period: PeriodChoice,
   customRange: { from: string; to: string } | null
@@ -98,33 +78,16 @@ async function loadDashboardData(
       : await getRevenue({ period: period as RevenuePeriod, group_by: groupBy });
   if (!revenue) throw new Error("Failed to load revenue.");
 
-  const transactions = await fetchAllTransactions(revenue.date_from, revenue.date_to);
-
-  let paidCount = 0;
-  let unpaidCount = 0;
-  let pendingDeliveries = 0;
-  let onDelivery = 0;
-  let delivered = 0;
-
-  transactions.forEach((tx) => {
-    if (tx.payment_status === "PAID") paidCount++;
-    else unpaidCount++;
-
-    if (tx.delivery_status === "PENDING") pendingDeliveries++;
-    else if (tx.delivery_status === "ON_DELIVERY") onDelivery++;
-    else delivered++;
-  });
-
   return {
     totalRevenue: revenue.total_revenue,
     points: revenue.points,
     groupBy,
-    transactionCount: transactions.length,
-    paidCount,
-    unpaidCount,
-    pendingDeliveries,
-    onDelivery,
-    delivered,
+    transactionCount: revenue.transaction_count,
+    paidCount: revenue.paid_count,
+    unpaidCount: revenue.unpaid_count,
+    pendingDeliveries: revenue.pending_deliveries,
+    onDelivery: revenue.on_delivery,
+    delivered: revenue.delivered_count,
   };
 }
 
@@ -226,38 +189,94 @@ function RevenueBarChart({ points }: { points: RevenuePoint[] }) {
   );
 }
 
-function StatusBreakdown({
-  title,
-  items,
-}: {
-  title: string;
-  items: { label: string; count: number; className: string }[];
-}) {
-  const total = Math.max(1, items.reduce((sum, item) => sum + item.count, 0));
+type StatusItem = { label: string; count: number; color: string; className: string };
+
+function StatusDonutChart({ title, items }: { title: string; items: StatusItem[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const total = items.reduce((sum, item) => sum + item.count, 0);
+  const size = 140;
+  const radius = 52;
+  const strokeWidth = 20;
+  const circumference = 2 * Math.PI * radius;
+  const gap = 3;
+
+  const rawLengths = items.map((item) => (total > 0 ? (item.count / total) * circumference : 0));
+  const startOffsets = rawLengths.reduce<number[]>((acc, _, i) => {
+    acc.push(i === 0 ? 0 : acc[i - 1] + rawLengths[i - 1]);
+    return acc;
+  }, []);
+  const segments = items.map((item, i) => ({
+    ...item,
+    length: Math.max(rawLengths[i] - gap, 0),
+    offset: -(startOffsets[i] + gap / 2),
+    index: i,
+  }));
+
+  const centerLabel = hover !== null ? segments[hover].label : "Total";
+  const centerValue = hover !== null ? segments[hover].count : total;
+
   return (
     <div className="rounded-xl border border-border bg-card p-6">
       <h2 className="text-sm font-medium text-card-foreground">{title}</h2>
-      <div className="mt-4 flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full bg-muted">
-        {items.map(
-          (item) =>
-            item.count > 0 && (
-              <div
-                key={item.label}
-                className={`h-full rounded-full ${item.className}`}
-                style={{ width: `${(item.count / total) * 100}%` }}
-                title={`${item.label}: ${item.count}`}
-              />
-            )
-        )}
-      </div>
-      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
-        {items.map((item) => (
-          <div key={item.label} className="flex items-center gap-2 text-sm">
-            <span className={`h-2.5 w-2.5 rounded-full ${item.className}`} />
-            <span className="text-muted-foreground">{item.label}</span>
-            <span className="font-medium text-card-foreground">{item.count}</span>
+      <div className="mt-4 flex items-center gap-6">
+        <div className="relative shrink-0" style={{ width: size, height: size }}>
+          <svg
+            viewBox={`0 0 ${size} ${size}`}
+            width={size}
+            height={size}
+            className="-rotate-90"
+            role="img"
+            aria-label={`${title} chart`}
+          >
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke="var(--color-muted)"
+              strokeWidth={strokeWidth}
+            />
+            {segments.map(
+              (seg) =>
+                seg.count > 0 && (
+                  <circle
+                    key={seg.label}
+                    cx={size / 2}
+                    cy={size / 2}
+                    r={radius}
+                    fill="none"
+                    stroke={seg.color}
+                    strokeWidth={strokeWidth}
+                    strokeDasharray={`${seg.length} ${circumference - seg.length}`}
+                    strokeDashoffset={seg.offset}
+                    strokeLinecap="round"
+                    opacity={hover === null || hover === seg.index ? 1 : 0.4}
+                    className="cursor-pointer transition-opacity"
+                    onMouseEnter={() => setHover(seg.index)}
+                    onMouseLeave={() => setHover((h) => (h === seg.index ? null : h))}
+                  />
+                )
+            )}
+          </svg>
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+            <span className="text-2xl font-semibold text-card-foreground">{centerValue}</span>
+            <span className="text-xs text-muted-foreground">{centerLabel}</span>
           </div>
-        ))}
+        </div>
+        <div className="flex flex-col gap-2">
+          {items.map((item, i) => (
+            <div
+              key={item.label}
+              className="flex items-center gap-2 text-sm"
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover((h) => (h === i ? null : h))}
+            >
+              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${item.className}`} />
+              <span className="text-muted-foreground">{item.label}</span>
+              <span className="font-medium text-card-foreground">{item.count}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -312,6 +331,8 @@ export default function DashboardPage() {
             onValueChange={(v) => setPeriod(v as PeriodChoice)}
             className="w-40"
             options={PERIOD_OPTIONS}
+            searchable={false}
+            maxVisibleItems={5}
           />
           {period === "custom" && (
             <>
@@ -341,17 +362,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {!loading && !error && data && data.transactionCount === 0 && (
-        <div className="mt-10 flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card py-24 text-center">
-          <ClipboardListIcon className="h-10 w-10 text-muted-foreground" />
-          <p className="mt-4 text-sm font-medium text-card-foreground">No data yet</p>
-          <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-            No transactions in this period. Once orders come in, a summary will show up here.
-          </p>
-        </div>
-      )}
-
-      {!loading && !error && data && data.transactionCount > 0 && (
+      {!loading && !error && data && (
         <>
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile
@@ -395,19 +406,19 @@ export default function DashboardPage() {
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <StatusBreakdown
+            <StatusDonutChart
               title="Payment status"
               items={[
-                { label: "Paid", count: data.paidCount, className: "bg-emerald-500" },
-                { label: "Unpaid", count: data.unpaidCount, className: "bg-amber-500" },
+                { label: "Paid", count: data.paidCount, color: "#10b981", className: "bg-emerald-500" },
+                { label: "Unpaid", count: data.unpaidCount, color: "#f59e0b", className: "bg-amber-500" },
               ]}
             />
-            <StatusBreakdown
+            <StatusDonutChart
               title="Delivery status"
               items={[
-                { label: "Pending", count: data.pendingDeliveries, className: "bg-slate-400" },
-                { label: "On delivery", count: data.onDelivery, className: "bg-blue-500" },
-                { label: "Delivered", count: data.delivered, className: "bg-emerald-500" },
+                { label: "Pending", count: data.pendingDeliveries, color: "#94a3b8", className: "bg-slate-400" },
+                { label: "On delivery", count: data.onDelivery, color: "#3b82f6", className: "bg-blue-500" },
+                { label: "Delivered", count: data.delivered, color: "#10b981", className: "bg-emerald-500" },
               ]}
             />
           </div>

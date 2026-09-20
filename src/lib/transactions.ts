@@ -68,6 +68,12 @@ export type RevenueResponse = {
   date_to: string;
   total_revenue: number;
   points: RevenuePoint[];
+  transaction_count: number;
+  paid_count: number;
+  unpaid_count: number;
+  pending_deliveries: number;
+  on_delivery: number;
+  delivered_count: number;
 };
 
 export function getRevenue(filters: RevenueFilters = {}) {

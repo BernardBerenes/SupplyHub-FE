@@ -484,9 +484,10 @@ All endpoints below require `Authorization: Bearer <access_token>`. There is no 
 | --- | --- | --- |
 | POST | `/api/v1/transactions` | Create transaction |
 | POST | `/api/v1/transactions/paginate` | List transactions with pagination |
+| POST | `/api/v1/transactions/revenue` | Get revenue aggregated by period |
+| POST | `/api/v1/transactions/sync` | Sync store/product name snapshots |
 | PATCH | `/api/v1/transactions/:uuid` | Update transaction |
 | DELETE | `/api/v1/transactions/:uuid` | Delete transaction |
-| POST | `/api/v1/transactions/sync` | Sync store/product name snapshots |
 
 ### Create Transaction
 
@@ -578,6 +579,92 @@ All fields optional. `limit` must be one of `10`, `25`, `50`, `100`. `payment_st
 | 400 | `{"message":"Invalid request","errors":[{"field":"date_from","message":"date_from is datetime"}]}` (date_to uses the same "is datetime" wording) |
 | 400 | `{"message":"Invalid request","errors":[{"field":"date_to","message":"date_to must not be before date_from"}]}` |
 
+### Get Revenue
+
+```
+POST /api/v1/transactions/revenue
+```
+
+Sums `total_price` across the details of `PAID` transactions, bucketed by period, and also reports transaction/delivery status counts for the same resolved date range (across both `PAID` and `UNPAID` transactions).
+
+**Request**
+
+```json
+{
+  "period": "1m",
+  "date_from": "2026-07-01",
+  "date_to": "2026-09-30",
+  "group_by": "month"
+}
+```
+
+All fields optional.
+
+- `period` — one of `1d`, `1m`, `3m`, `6m`, `1y`, `all`. Ignored if `date_from` and/or `date_to` is provided. Defaults to `1m` when nothing else is given.
+- `date_from` / `date_to` — `YYYY-MM-DD`, override `period` when present. If only `date_to` is given, `date_from` defaults to the earliest `PAID` transaction date. If only `date_from` is given, `date_to` defaults to today.
+- `group_by` — one of `day`, `week`, `month`. If omitted, it is chosen automatically from the resolved date range: `total` for a range of 1 day or less, `day` for up to 62 days, `month` beyond that.
+
+**Success — 200**
+
+```json
+{
+  "message": "Revenue retrieved successfully",
+  "data": {
+    "period": "1m",
+    "group_by": "day",
+    "date_from": "2026-08-20",
+    "date_to": "2026-09-19",
+    "total_revenue": 1250000,
+    "points": [
+      { "period": "2026-08-20", "revenue": 0 },
+      { "period": "2026-08-21", "revenue": 300000 }
+    ],
+    "transaction_count": 5,
+    "paid_count": 3,
+    "unpaid_count": 2,
+    "pending_deliveries": 1,
+    "on_delivery": 2,
+    "delivered_count": 2
+  }
+}
+```
+
+`period` in the response is the request's `period` field verbatim (empty string when `date_from`/`date_to` were used instead). `points` always includes every bucket in the resolved range, including zero-revenue buckets. The `period` key inside each point depends on `group_by`: `YYYY-MM-DD` for `day`, ISO week as `YYYY-Www` (e.g. `2026-W34`) for `week`, `YYYY-MM` for `month`, or the literal `total` for `total`.
+
+`transaction_count`, `paid_count`, `unpaid_count`, `pending_deliveries`, `on_delivery`, and `delivered_count` are all counted over `[date_from, date_to]` regardless of `payment_status` (unlike `total_revenue`/`points`, which only sum `PAID` transactions). `transaction_count` is `paid_count + unpaid_count`.
+
+**Errors**
+
+| Status | Body |
+| --- | --- |
+| 400 | `{"message":"Invalid request","errors":[{"field":"period","message":"period is oneof"}]}` |
+| 400 | `{"message":"Invalid request","errors":[{"field":"group_by","message":"group_by is oneof"}]}` |
+| 400 | `{"message":"Invalid request","errors":[{"field":"date_from","message":"date_from is datetime"}]}` (date_to uses the same "is datetime" wording) |
+| 400 | `{"message":"Invalid request","errors":[{"field":"date_to","message":"date_to must not be before date_from"}]}` |
+| 500 | `{"message":"Internal server error"}` |
+
+### Sync Store/Product Names
+
+```
+POST /api/v1/transactions/sync
+```
+
+No request body. For every `PENDING` transaction, re-syncs the store name snapshot (`store.name`) and the product name snapshot (`product.name`) of its transaction details, in case the underlying store/product was renamed. `ON_DELIVERY`/`DELIVERED` transactions and their details are left untouched.
+
+**Success — 200**
+
+```json
+{
+  "message": "Transactions synced successfully"
+}
+```
+
+**Errors**
+
+| Status | Body |
+| --- | --- |
+| 500 | `{"message":"Internal server error"}` |
+
 ### Update Transaction
 
 ```
@@ -638,28 +725,6 @@ Soft delete.
 | Status | Body |
 | --- | --- |
 | 404 | `{"message":"Transaction not found"}` |
-
-### Sync Store/Product Names
-
-```
-POST /api/v1/transactions/sync
-```
-
-No request body. For every `PENDING` transaction, re-syncs the store name snapshot (`store.name`) and the product name snapshot (`product.name`) of its transaction details, in case the underlying store/product was renamed. `ON_DELIVERY`/`DELIVERED` transactions and their details are left untouched.
-
-**Success — 200**
-
-```json
-{
-  "message": "Transactions synced successfully"
-}
-```
-
-**Errors**
-
-| Status | Body |
-| --- | --- |
-| 500 | `{"message":"Internal server error"}` |
 
 ---
 

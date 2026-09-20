@@ -19,6 +19,8 @@ export function Select({
   options,
   required,
   className,
+  searchable: searchableProp,
+  maxVisibleItems,
 }: {
   id?: string;
   name?: string;
@@ -29,6 +31,8 @@ export function Select({
   options: SelectOption[];
   required?: boolean;
   className?: string;
+  searchable?: boolean;
+  maxVisibleItems?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
@@ -43,7 +47,7 @@ export function Select({
     return () => window.removeEventListener(POPOVER_OPEN_EVENT, handleOtherOpen);
   }, [instanceId]);
 
-  const searchable = options.length > SEARCH_THRESHOLD;
+  const searchable = searchableProp ?? options.length > SEARCH_THRESHOLD;
   const filtered = searchable
     ? options.filter((opt) => opt.label.toLowerCase().includes(filter.toLowerCase()))
     : options;
@@ -103,10 +107,10 @@ export function Select({
           </div>
         )}
 
-        <RadixSelect.ScrollUpButton className="flex cursor-default items-center justify-center py-1 text-muted-foreground">
-          <ChevronDownIcon className="h-4 w-4 rotate-180" />
-        </RadixSelect.ScrollUpButton>
-        <RadixSelect.Viewport className="max-h-[min(13rem,var(--radix-select-content-available-height))] overflow-y-auto p-1">
+        <RadixSelect.Viewport
+          className="max-h-[min(13rem,var(--radix-select-content-available-height))] overflow-y-auto p-1"
+          style={maxVisibleItems ? { maxHeight: `calc(${maxVisibleItems} * 2.25rem + 0.5rem)` } : undefined}
+        >
           {filtered.length === 0 && (
             <p className="px-3 py-2 text-sm text-muted-foreground">No results.</p>
           )}
@@ -125,9 +129,6 @@ export function Select({
             </RadixSelect.Item>
           ))}
         </RadixSelect.Viewport>
-        <RadixSelect.ScrollDownButton className="flex cursor-default items-center justify-center py-1 text-muted-foreground">
-          <ChevronDownIcon className="h-4 w-4" />
-        </RadixSelect.ScrollDownButton>
       </RadixSelect.Content>
     </RadixSelect.Root>
   );
