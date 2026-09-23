@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/api";
-import { getRevenue, type RevenueGroupBy, type RevenuePeriod, type RevenuePoint } from "@/lib/transactions";
+import { getRevenue, type RevenueGroupBy, type RevenuePeriod, type RevenuePoint, type StoreRevenue } from "@/lib/transactions";
 import { BanknoteIcon, ClipboardListIcon, ClockIcon, TruckIcon } from "@/components/icons";
 import { Select } from "@/components/Select";
 import { DatePicker } from "@/components/DatePicker";
@@ -33,6 +33,7 @@ type DashboardData = {
   pendingDeliveries: number;
   onDelivery: number;
   delivered: number;
+  stores: StoreRevenue[];
 };
 
 function groupByForPeriod(period: RevenuePeriod): RevenueGroupBy {
@@ -66,6 +67,22 @@ function formatCurrency(n: number) {
   return `Rp${Math.round(n).toLocaleString("id-ID")}`;
 }
 
+function formatCompactCurrency(n: number) {
+  return `Rp${new Intl.NumberFormat("id-ID", { notation: "compact", maximumFractionDigits: 1 }).format(n)}`;
+}
+
+function niceTicks(max: number, count = 4) {
+  if (max <= 0) return [0];
+  const rawStep = max / count;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const residual = rawStep / magnitude;
+  const step = residual > 5 ? 10 * magnitude : residual > 2 ? 5 * magnitude : residual > 1 ? 2 * magnitude : magnitude;
+  const niceMax = Math.ceil(max / step) * step;
+  const ticks: number[] = [];
+  for (let v = 0; v <= niceMax + step / 2; v += step) ticks.push(Math.round(v));
+  return ticks;
+}
+
 async function loadDashboardData(
   period: PeriodChoice,
   customRange: { from: string; to: string } | null
@@ -88,6 +105,7 @@ async function loadDashboardData(
     pendingDeliveries: revenue.pending_deliveries,
     onDelivery: revenue.on_delivery,
     delivered: revenue.delivered_count,
+    stores: revenue.stores ?? [],
   };
 }
 
@@ -114,38 +132,68 @@ function StatTile({
   );
 }
 
-function RevenueBarChart({ points }: { points: RevenuePoint[] }) {
+type BarChartItem = { key: string; label: string; value: number };
+
+function truncateLabel(label: string, max = 10) {
+  return label.length > max ? `${label.slice(0, max - 1)}…` : label;
+}
+
+function BarChart({ items, labelAngle = 0 }: { items: BarChartItem[]; labelAngle?: 0 | 45 | 90 }) {
   const [hover, setHover] = useState<number | null>(null);
   const width = 700;
-  const height = 220;
-  const paddingLeft = 4;
+  const height = labelAngle === 90 ? 300 : labelAngle === 45 ? 260 : 220;
   const paddingRight = 4;
   const paddingTop = 12;
-  const paddingBottom = 24;
+  const paddingBottom = labelAngle === 90 ? 104 : labelAngle === 45 ? 68 : 24;
+
+  const dataMax = Math.max(1, ...items.map((item) => item.value));
+  const ticks = niceTicks(dataMax);
+  const max = ticks[ticks.length - 1];
+  const tickLabels = ticks.map(formatCompactCurrency);
+  const paddingLeft = 8 + Math.max(...tickLabels.map((t) => t.length)) * 5.5;
+
   const chartWidth = width - paddingLeft - paddingRight;
   const chartHeight = height - paddingTop - paddingBottom;
-  const max = Math.max(1, ...points.map((p) => p.revenue));
-  const barGap = points.length > 20 ? 2 : 6;
-  const barWidth = Math.max(chartWidth / Math.max(points.length, 1) - barGap, 1);
-  const labelStep = Math.max(1, Math.ceil(points.length / 12));
+  const barGap = items.length > 20 ? 2 : 6;
+  const barWidth = Math.max(chartWidth / Math.max(items.length, 1) - barGap, 1);
+  const labelStep = labelAngle === 0 ? Math.max(1, Math.ceil(items.length / 12)) : 1;
+  const labelMaxChars = labelAngle === 90 ? 16 : labelAngle === 45 ? 14 : 10;
 
   return (
     <div className="relative">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Revenue chart">
-        <line
-          x1={paddingLeft}
-          y1={paddingTop + chartHeight}
-          x2={width - paddingRight}
-          y2={paddingTop + chartHeight}
-          stroke="var(--color-border)"
-          strokeWidth={1}
-        />
-        {points.map((p, i) => {
-          const barHeight = Math.max((p.revenue / max) * chartHeight, 3);
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Bar chart">
+        {ticks.map((tick, i) => {
+          const tickY = paddingTop + chartHeight - (tick / max) * chartHeight;
+          return (
+            <g key={tick}>
+              <line
+                x1={paddingLeft}
+                y1={tickY}
+                x2={width - paddingRight}
+                y2={tickY}
+                stroke="var(--color-border)"
+                strokeWidth={1}
+              />
+              <text
+                x={paddingLeft - 8}
+                y={tickY}
+                textAnchor="end"
+                dominantBaseline="middle"
+                fontSize={9}
+                fill="var(--color-muted-foreground)"
+              >
+                {tickLabels[i]}
+              </text>
+            </g>
+          );
+        })}
+        {items.map((item, i) => {
+          const barHeight = Math.max((item.value / max) * chartHeight, 3);
           const x = paddingLeft + i * (barWidth + barGap);
           const y = paddingTop + chartHeight - barHeight;
+          const labelX = x + barWidth / 2;
           return (
-            <g key={`${p.period}-${i}`}>
+            <g key={item.key}>
               <rect
                 x={x}
                 y={y}
@@ -158,22 +206,28 @@ function RevenueBarChart({ points }: { points: RevenuePoint[] }) {
                 onMouseEnter={() => setHover(i)}
                 onMouseLeave={() => setHover((h) => (h === i ? null : h))}
               />
-              {i % labelStep === 0 && (
-                <text
-                  x={x + barWidth / 2}
-                  y={height - 6}
-                  textAnchor="middle"
-                  fontSize={9}
-                  fill="var(--color-muted-foreground)"
-                >
-                  {formatPeriodLabel(p.period)}
-                </text>
-              )}
+              {i % labelStep === 0 &&
+                (labelAngle === 0 ? (
+                  <text x={labelX} y={height - 6} textAnchor="middle" fontSize={9} fill="var(--color-muted-foreground)">
+                    {truncateLabel(item.label, labelMaxChars)}
+                  </text>
+                ) : (
+                  <text
+                    x={labelX}
+                    y={paddingTop + chartHeight + 8}
+                    textAnchor="start"
+                    fontSize={9}
+                    fill="var(--color-muted-foreground)"
+                    transform={`rotate(${labelAngle}, ${labelX}, ${paddingTop + chartHeight + 8})`}
+                  >
+                    {truncateLabel(item.label, labelMaxChars)}
+                  </text>
+                ))}
             </g>
           );
         })}
       </svg>
-      {hover !== null && points[hover] && (
+      {hover !== null && items[hover] && (
         <div
           className="pointer-events-none absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs shadow-md"
           style={{
@@ -181,13 +235,14 @@ function RevenueBarChart({ points }: { points: RevenuePoint[] }) {
             top: `${(paddingTop / height) * 100}%`,
           }}
         >
-          <p className="font-medium text-card-foreground">{formatPeriodLabel(points[hover].period)}</p>
-          <p className="text-muted-foreground">{formatCurrency(points[hover].revenue)}</p>
+          <p className="font-medium text-card-foreground">{items[hover].label}</p>
+          <p className="text-muted-foreground">{formatCurrency(items[hover].value)}</p>
         </div>
       )}
     </div>
   );
 }
+
 
 type StatusItem = { label: string; count: number; color: string; className: string };
 
@@ -401,7 +456,27 @@ export default function DashboardPage() {
               <p className="text-lg font-semibold text-card-foreground">{formatCurrency(data.totalRevenue)}</p>
             </div>
             <div className="mt-4">
-              <RevenueBarChart points={data.points} />
+              <BarChart
+                items={data.points.map((p, i) => ({
+                  key: `${p.period}-${i}`,
+                  label: formatPeriodLabel(p.period),
+                  value: p.revenue,
+                }))}
+              />
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-xl border border-border bg-card p-6">
+            <h2 className="text-sm font-medium text-card-foreground">Revenue by store</h2>
+            <div className="mt-4">
+              {data.stores.length > 0 ? (
+                <BarChart
+                  items={data.stores.map((s) => ({ key: String(s.store_id), label: s.store_name, value: s.revenue }))}
+                  labelAngle={45}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">No stores yet.</p>
+              )}
             </div>
           </div>
 

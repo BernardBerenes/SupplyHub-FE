@@ -61,6 +61,8 @@ export type RevenueFilters = {
 
 export type RevenuePoint = { period: string; revenue: number };
 
+export type StoreRevenue = { store_id: number; store_name: string; revenue: number };
+
 export type RevenueResponse = {
   period: string;
   group_by: RevenueGroupBy | "total";
@@ -74,6 +76,7 @@ export type RevenueResponse = {
   pending_deliveries: number;
   on_delivery: number;
   delivered_count: number;
+  stores: StoreRevenue[];
 };
 
 export function getRevenue(filters: RevenueFilters = {}) {

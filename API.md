@@ -585,7 +585,7 @@ All fields optional. `limit` must be one of `10`, `25`, `50`, `100`. `payment_st
 POST /api/v1/transactions/revenue
 ```
 
-Sums `total_price` across the details of `PAID` transactions, bucketed by period, and also reports transaction/delivery status counts for the same resolved date range (across both `PAID` and `UNPAID` transactions).
+Sums `total_price` across the details of `PAID` transactions, bucketed by period, also reports transaction/delivery status counts for the same resolved date range (across both `PAID` and `UNPAID` transactions), and reports revenue per store over that same range.
 
 **Request**
 
@@ -624,7 +624,12 @@ All fields optional.
     "unpaid_count": 2,
     "pending_deliveries": 1,
     "on_delivery": 2,
-    "delivered_count": 2
+    "delivered_count": 2,
+    "stores": [
+      { "store_id": 1, "store_name": "Toko Surya", "revenue": 800000 },
+      { "store_id": 2, "store_name": "Toko Makmur", "revenue": 450000 },
+      { "store_id": 3, "store_name": "Toko Baru", "revenue": 0 }
+    ]
   }
 }
 ```
@@ -632,6 +637,8 @@ All fields optional.
 `period` in the response is the request's `period` field verbatim (empty string when `date_from`/`date_to` were used instead). `points` always includes every bucket in the resolved range, including zero-revenue buckets. The `period` key inside each point depends on `group_by`: `YYYY-MM-DD` for `day`, ISO week as `YYYY-Www` (e.g. `2026-W34`) for `week`, `YYYY-MM` for `month`, or the literal `total` for `total`.
 
 `transaction_count`, `paid_count`, `unpaid_count`, `pending_deliveries`, `on_delivery`, and `delivered_count` are all counted over `[date_from, date_to]` regardless of `payment_status` (unlike `total_revenue`/`points`, which only sum `PAID` transactions). `transaction_count` is `paid_count + unpaid_count`.
+
+`stores` always includes every active (non soft-deleted) store, even ones with `revenue: 0` in the resolved date range — it is not limited to stores with `PAID` transactions in range. It is sorted by `revenue` descending, then `store_name` ascending. Like `total_revenue`/`points`, it only sums `PAID` transactions.
 
 **Errors**
 
