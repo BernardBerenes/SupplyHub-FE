@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/api";
 import { getRevenue, type RevenueGroupBy, type RevenuePeriod, type RevenuePoint, type StoreRevenue } from "@/lib/transactions";
-import { BanknoteIcon, ClipboardListIcon, ClockIcon, TruckIcon } from "@/components/icons";
+import { BanknoteIcon, ClipboardListIcon, ClockIcon, DownloadIcon, TruckIcon } from "@/components/icons";
 import { Select } from "@/components/Select";
 import { DatePicker } from "@/components/DatePicker";
 
@@ -107,6 +107,42 @@ async function loadDashboardData(
     delivered: revenue.delivered_count,
     stores: revenue.stores ?? [],
   };
+}
+
+async function exportDashboardToExcel(data: DashboardData, periodLabel: string) {
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet([
+      { Metric: "Period", Value: periodLabel },
+      { Metric: "Total revenue", Value: data.totalRevenue },
+      { Metric: "Transactions", Value: data.transactionCount },
+      { Metric: "Paid", Value: data.paidCount },
+      { Metric: "Unpaid", Value: data.unpaidCount },
+      { Metric: "Deliveries pending", Value: data.pendingDeliveries },
+      { Metric: "On delivery", Value: data.onDelivery },
+      { Metric: "Delivered", Value: data.delivered },
+    ]),
+    "Summary"
+  );
+
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet(
+      data.points.map((p) => ({ Period: formatPeriodLabel(p.period), Revenue: p.revenue }))
+    ),
+    `Revenue by ${GROUP_LABEL[data.groupBy]}`
+  );
+
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet(data.stores.map((s) => ({ Store: s.store_name, Revenue: s.revenue }))),
+    "Revenue by store"
+  );
+
+  XLSX.writeFile(workbook, `dashboard-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 function StatTile({
@@ -396,6 +432,23 @@ export default function DashboardPage() {
               <DatePicker value={customTo} onChange={setCustomTo} placeholder="To date" min={customFrom} align="right" />
             </>
           )}
+          <button
+            type="button"
+            disabled={!data}
+            onClick={() =>
+              data &&
+              exportDashboardToExcel(
+                data,
+                period === "custom"
+                  ? `${formatPeriodLabel(customFrom)} – ${formatPeriodLabel(customTo)}`
+                  : PERIOD_OPTIONS.find((o) => o.value === period)?.label ?? ""
+              )
+            }
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2.5 text-sm font-medium text-card-foreground transition-[background-color,transform] active:scale-[0.98] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <DownloadIcon className="h-4 w-4" />
+            Export
+          </button>
         </div>
       </div>
 

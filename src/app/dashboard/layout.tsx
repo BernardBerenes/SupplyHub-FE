@@ -30,7 +30,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex flex-1 bg-background">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-card px-4 py-6">
+      <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-border bg-card px-4 py-6">
         <span className="px-2 text-lg font-semibold text-card-foreground">SupplyHub</span>
 
         <nav className="mt-8 flex flex-col gap-1">
